@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#111318">
+<meta name="description" content="Central de segurança e monitoramento de endpoints da COSTALOG.">
+<title>AGENTE COSTALOG | Central de Segurança</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/app.css?v=1">
+</head>
+<body>
+<div id="authGate" class="auth-gate">
+  <div class="auth-brand">
+    <div class="brand-mark">C</div>
+    <div class="brand-copy"><strong>COSTALOG</strong><span>SEGURANÇA DE ENDPOINTS</span></div>
+  </div>
+  <div class="auth-wrap">
+    <form id="loginForm" class="auth-card">
+      <div class="auth-icon">⌑</div>
+      <div class="eyebrow">ACESSO ADMINISTRATIVO</div>
+      <h1>Central de Segurança</h1>
+      <p>Entre com a mesma conta administrativa da Central de Notas Fiscais Costalog.</p>
+      <label for="username">Usuário</label>
+      <input id="username" name="username" autocomplete="username" required maxlength="80" placeholder="Seu usuário">
+      <label for="password">Senha</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="200" placeholder="Sua senha">
+      <button id="loginButton" class="btn btn-primary btn-block" type="submit">Acessar plataforma <span>→</span></button>
+      <div id="loginFeedback" class="form-feedback" role="alert"></div>
+      <div class="auth-foot"><span class="status-dot"></span> Autenticação centralizada e protegida</div>
+    </form>
+  </div>
+  <div class="auth-bottom">COSTALOG · Conectamos destinos. Movimentamos resultados.</div>
+</div>
+
+<div id="app" class="app-shell" hidden>
+  <aside class="sidebar" id="sidebar">
+    <a class="side-brand" href="#overview" aria-label="AGENTE COSTALOG início">
+      <div class="brand-mark">C</div><div class="brand-copy"><strong>AGENTE COSTALOG</strong><span>SECURITY CONTROL</span></div>
+    </a>
+    <div class="side-label">PLATAFORMA</div>
+    <nav class="side-nav" id="sideNav">
+      <button class="nav-item active" data-view="overview"><span class="nav-icon">◫</span><span>Visão geral</span></button>
+      <button class="nav-item" data-view="web-blocking"><span class="nav-icon">⊘</span><span>Bloqueio de sites</span></button>
+      <button class="nav-item" data-view="certificate-rules"><span class="nav-icon">◈</span><span>Sites para certificados</span></button>
+      <button class="nav-item" data-view="devices"><span class="nav-icon">▣</span><span>Computadores</span><span class="nav-count">12</span></button>
+      <button class="nav-item" data-view="health"><span class="nav-icon">⌁</span><span>Saúde dos computadores</span></button>
+      <button class="nav-item" data-view="installed-certs"><span class="nav-icon">▤</span><span>Certificados na máquina</span></button>
+      <button class="nav-item" data-view="browsing"><span class="nav-icon">◎</span><span>Atividade de navegação</span></button>
+    <div class="side-label side-label-space">CONTROLE</div>
+      <button class="nav-item" data-view="audit"><span class="nav-icon">≋</span><span>Auditoria e alertas</span></button>
+      <button class="nav-item" data-view="downloads"><span class="nav-icon">⇩</span><span>Download do agente</span></button>
+      <button class="nav-item" data-view="agent-settings"><span class="nav-icon">⚙</span><span>Configurações agente</span></button>
+      <button class="nav-item" data-view="settings"><span class="nav-icon">☷</span><span>Configurações gerais</span></button>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="sidebar-security"><span class="security-shield">◈</span><div><b>Proteção corporativa</b><small>Políticas centralizadas</small></div><span class="live-dot"></span></div>
+      <button id="logoutButton" class="logout-button">↪ Encerrar sessão</button>
+      <div class="sidebar-version">AGENTE COSTALOG · V0.1.0</div>
+    </div>
+  </aside>
+
+  <main class="main-area">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button id="menuButton" class="mobile-menu" aria-label="Abrir menu">☰</button>
+        <div class="breadcrumb"><span>SEGURANÇA</span><b>/</b><strong id="pageTitle">Visão geral</strong></div>
+      </div>
+      <div class="topbar-right">
+        <div class="environment-badge" id="environmentBadge"><span></span> DEMONSTRAÇÃO · API NÃO CONECTADA</div>
+        <button class="icon-button" id="alertsButton" title="Alertas">♢<i></i></button>
+        <div class="user-chip"><div class="avatar">TI</div><div><b>Equipe de TI</b><small>Administrador</small></div></div>
+      </div>
+    </header>
+
+    <div class="content-wrap">
+      <div class="global-demo-alert" id="demoNotice"><b>Ambiente de demonstração.</b> Os registros exibidos são ilustrativos. Nenhum computador está sendo monitorado nem bloqueado até a API e o agente Windows serem instalados.</div>
+      <section id="viewRoot" aria-live="polite"></section>
+      <footer class="page-footer"><span>COSTALOG · AGENTE COSTALOG</span><span>Central de Segurança de Endpoints</span></footer>
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="assets/js/config.js?v=1"></script>
+<script src="assets/js/app.js?v=1"></script>
+</body>
+</html>
