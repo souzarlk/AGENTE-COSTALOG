@@ -20,6 +20,7 @@ app.use((req,res,next)=>{res.set("Cache-Control","no-store");next()});
 app.use("/api/",rateLimit({windowMs:60000,limit:5000,standardHeaders:"draft-7",legacyHeaders:false}));
 app.get("/api/v1/health",async(req,res,next)=>{try{await query("SELECT 1");res.json({status:"ok",service:"agente-costalog-api",time:new Date().toISOString()})}catch(e){next(e)}});
 app.use("/api/v1/admin",adminRoutes);
+app.use("/api/v1/device/enroll",rateLimit({windowMs:15*60*1000,limit:8,standardHeaders:"draft-7",legacyHeaders:false,message:{error:"too_many_enrollment_attempts",message:"Muitas tentativas de instalação. Aguarde antes de tentar novamente."}}));
 app.use("/api/v1/device",deviceRoutes);
 app.use((req,res)=>res.status(404).json({error:"not_found",message:"Rota não encontrada.",requestId:req.id}));
 app.use(errorHandler);
