@@ -13,5 +13,5 @@ export function verifyCentralToken(token){
  const now=Math.floor(Date.now()/1000);if(!claims.sub||!Number.isFinite(claims.exp)||claims.exp<=now||!Number.isFinite(claims.iat)||claims.iat>now+60)throw new Error("Sessão expirada ou inválida.");
  return claims;
 }
-export function signPolicy(payload){const keyText=process.env.POLICY_SIGNING_PRIVATE_KEY_BASE64;if(!keyText)throw new Error("Chave privada de assinatura de política não configurada.");const key=crypto.createPrivateKey(Buffer.from(keyText,"base64").toString("utf8"));const signature=crypto.sign("RSA-SHA256",Buffer.from(JSON.stringify(payload)),key).toString("base64url");return{payload,signature,algorithm:"RSA-SHA256"}}
+export function signPolicy(payload){const keyText=process.env.POLICY_SIGNING_PRIVATE_KEY_BASE64;if(!keyText)throw new Error("Chave privada de assinatura de política não configurada.");const key=crypto.createPrivateKey(Buffer.from(keyText,"base64").toString("utf8"));const signed=Buffer.from(JSON.stringify(payload));const signature=crypto.sign("RSA-SHA256",signed,key).toString("base64url");return{payload,signedPayload:signed.toString("base64"),signature,algorithm:"RSA-SHA256"}}
 export function signReleaseApproval(payload){return signPolicy(payload)}
