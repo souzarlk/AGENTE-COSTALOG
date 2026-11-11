@@ -4,10 +4,12 @@ on:
     branches: [main, feature/portal-foundation]
     paths:
       - 'windows-agent/**'
+      - 'AGENTE-COSTALOG.sln'
       - '.github/workflows/build-windows-agent.yml'
   pull_request:
     paths:
       - 'windows-agent/**'
+      - 'AGENTE-COSTALOG.sln'
       - '.github/workflows/build-windows-agent.yml'
   workflow_dispatch:
 
@@ -16,15 +18,45 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - name: Restore desktop app
-        run: dotnet restore windows-agent/Costalog.Agent.Desktop/Costalog.Agent.Desktop.csproj
-      - name: Build desktop app
-        run: dotnet build windows-agent/Costalog.Agent.Desktop/Costalog.Agent.Desktop.csproj --configuration Release --no-restore
-      - name: Restore Windows service
-        run: dotnet restore windows-agent/Costalog.Agent.Service/Costalog.Agent.Service.csproj
-      - name: Build Windows service
-        run: dotnet build windows-agent/Costalog.Agent.Service/Costalog.Agent.Service.csproj --configuration Release --no-restore
+
+      - name: Restore solution
+        run: dotnet restore AGENTE-COSTALOG.sln
+
+      - name: Build solution
+        run: dotnet build AGENTE-COSTALOG.sln --configuration Release --no-restore
+
+      - name: Publish WPF desktop app
+        shell: pwsh
+        run: dotnet publish windows-agent/Costalog.Agent.Desktop/Costalog.Agent.Desktop.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -o "$env:RUNNER_TEMP/costalog-package/desktop"
+
+      - name: Publish Windows service
+        shell: pwsh
+        run: dotnet publish windows-agent/Costalog.Agent.Service/Costalog.Agent.Service.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -o "$env:RUNNER_TEMP/costalog-package/service"
+
+      - name: Publish setup assistant
+        shell: pwsh
+        run: dotnet publish windows-agent/Costalog.Agent.Setup/Costalog.Agent.Setup.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -o "$env:RUNNER_TEMP/costalog-package/setup"
+
+      - name: Assemble Windows package
+        shell: pwsh
+        run: |
+          $root = "$env:RUNNER_TEMP/costalog-package"
+          Copy-Item "$root/setup/Costalog.Agent.Setup.exe" "$root/Costalog.Agent.Setup.exe"
+          Copy-Item "windows-agent/installer/Install-CostalogAgent.ps1" "$root/Install-CostalogAgent.ps1"
+          Copy-Item "windows-agent/installer/Uninstall-CostalogAgent.ps1" "$root/Uninstall-CostalogAgent.ps1"
+          Copy-Item "windows-agent/installer/New-PolicyKeyPair.ps1" "$root/New-PolicyKeyPair.ps1"
+          Copy-Item "windows-agent/installer/README.md" "$root/INSTALLATION-README.md" -ErrorAction SilentlyContinue
+          Compress-Archive -Path "$root/*" -DestinationPath "$env:RUNNER_TEMP/AGENTE-COSTALOG-Windows-x64.zip" -Force
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: AGENTE-COSTALOG-Windows-x64
+          path: ${{ runner.temp }}/AGENTE-COSTALOG-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
