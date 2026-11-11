@@ -44,7 +44,7 @@ if (mode is not ("certificate" or "certificate-and-web"))
     return 2;
 }
 
-Console.WriteLine("Modo atribuído pela TI: " + (mode == "certificate" ? "Certificados" : "Certificados + navegação"));
+Console.WriteLine("O perfil efetivo será definido pela senha temporária e confirmado pelo servidor.");
 Console.Write("Senha temporária de instalação definida no painel da TI: ");
 var enrollment = ReadSecret().Trim();
 if (enrollment.Length < 20)
