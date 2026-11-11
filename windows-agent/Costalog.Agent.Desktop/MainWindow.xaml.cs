@@ -1,6 +1,4 @@
-using System.Diagnostics;
 using System.IO;
-using System.Management;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
