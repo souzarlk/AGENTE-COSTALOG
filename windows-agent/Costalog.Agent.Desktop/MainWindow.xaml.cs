@@ -164,18 +164,32 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private static string GetWmiString(Dictionary<string, object?>? values, string key) =>
-        values?.TryGetValue(key, out var value) == true ? value?.ToString() ?? "" : "";
+    private static string GetWmiString(Dictionary<string, object?>? values, string key)
+    {
+        if (values is not null && values.TryGetValue(key, out var value))
+            return value?.ToString() ?? "";
+        return "";
+    }
 
     private static ulong GetWmiUInt64(Dictionary<string, object?>? values, string key)
     {
-        try { return values?.TryGetValue(key, out var value) == true ? Convert.ToUInt64(value ?? 0) : 0UL; }
+        try
+        {
+            if (values is not null && values.TryGetValue(key, out var value))
+                return Convert.ToUInt64(value ?? 0);
+            return 0UL;
+        }
         catch { return 0UL; }
     }
 
     private static double? GetWmiNumber(Dictionary<string, object?>? values, string key)
     {
-        try { return values?.TryGetValue(key, out var value) == true && value is not null ? Convert.ToDouble(value) : null; }
+        try
+        {
+            if (values is not null && values.TryGetValue(key, out var value) && value is not null)
+                return Convert.ToDouble(value);
+            return null;
+        }
         catch { return null; }
     }
 
