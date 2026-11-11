@@ -3,6 +3,7 @@ window.COSTALOG_AGENT_CONFIG=Object.freeze({
   identityLoginPath:"/api/auth/login",
   identityMePath:"/api/auth/me",
   apiBaseUrl:"",
+  agentDownloadUrl:"",
   apiPrefix:"/api/v1",
   requestTimeoutMs:12000,
   authMode:"central-notas-fiscais",
