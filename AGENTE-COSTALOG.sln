@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Costalog.Agent.Desktop", "w
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Costalog.Agent.Service", "windows-agent\Costalog.Agent.Service\Costalog.Agent.Service.csproj", "{C7D55F88-4D45-47CF-B68D-3A0D4C4C2D32}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Costalog.Agent.Setup", "windows-agent\Costalog.Agent.Setup\Costalog.Agent.Setup.csproj", "{F4C1F49A-3F78-4F6D-89D1-9D5D7DFD52B3}"
+EndProject
 Global
   GlobalSection(SolutionConfigurationPlatforms) = preSolution
     Debug|Any CPU = Debug|Any CPU
@@ -20,5 +22,9 @@ Global
     {C7D55F88-4D45-47CF-B68D-3A0D4C4C2D32}.Debug|Any CPU.Build.0 = Debug|Any CPU
     {C7D55F88-4D45-47CF-B68D-3A0D4C4C2D32}.Release|Any CPU.ActiveCfg = Release|Any CPU
     {C7D55F88-4D45-47CF-B68D-3A0D4C4C2D32}.Release|Any CPU.Build.0 = Release|Any CPU
+    {F4C1F49A-3F78-4F6D-89D1-9D5D7DFD52B3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {F4C1F49A-3F78-4F6D-89D1-9D5D7DFD52B3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {F4C1F49A-3F78-4F6D-89D1-9D5D7DFD52B3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+    {F4C1F49A-3F78-4F6D-89D1-9D5D7DFD52B3}.Release|Any CPU.Build.0 = Release|Any CPU
   EndGlobalSection
 EndGlobal
