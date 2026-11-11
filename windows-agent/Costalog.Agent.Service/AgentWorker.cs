@@ -111,7 +111,7 @@ public sealed class AgentWorker:BackgroundService{
   using var req=Request(c,HttpMethod.Post,"api/v1/device/events",new{eventType=type,severity="warning",title,message,details});using var res=await _http.SendAsync(req,ct);
  }
  async Task MarkState(string status,string[] hosts,int revision,DateTimeOffset expiry,CancellationToken ct){
-  var c=AgentConfigStore.Load();AgentConfigStore.WritePublicState(new AgentPublicState{Status=status,InstallMode=c.InstallMode,Revision=revision,ExpiresAt=expiry.ToString("O"),AllowedDestinations=hosts,UpdatedAt=DateTimeOffset.UtcNow.ToString("O")});await Task.CompletedTask;
+  var c=AgentConfigStore.Load();AgentConfigStore.WritePublicState(new AgentPublicState{Status=status,InstallMode=c.InstallMode,DeviceId=c.DeviceId,Revision=revision,ExpiresAt=expiry.ToString("O"),AllowedDestinations=hosts,UpdatedAt=DateTimeOffset.UtcNow.ToString("O")});await Task.CompletedTask;
  }
  static bool IsHost(string h)=>h.Length<=253&&System.Text.RegularExpressions.Regex.IsMatch(h,@"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$",System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
@@ -120,17 +120,17 @@ public sealed class AgentWorker:BackgroundService{
   var cs=FirstWmi("SELECT UserName,Domain,Manufacturer,Model,TotalPhysicalMemory FROM Win32_ComputerSystem");
   var os=FirstWmi("SELECT Caption,Version,BuildNumber,LastBootUpTime,FreePhysicalMemory FROM Win32_OperatingSystem");
   var cpu=FirstWmi("SELECT Name FROM Win32_Processor");
-  var ram=ToUlong(cs?["TotalPhysicalMemory"]);var freeKb=ToUlong(os?["FreePhysicalMemory"]);var used=ram>freeKb*1024?ram-freeKb*1024:0UL;
-  DateTimeOffset boot=DateTimeOffset.UtcNow;try{var raw=os?["LastBootUpTime"]?.ToString();if(!string.IsNullOrWhiteSpace(raw))boot=ManagementDateTimeConverter.ToDateTime(raw).ToUniversalTime();}catch{}
+  var ram=ToUlong(cs?.GetValueOrDefault("TotalPhysicalMemory"));var freeKb=ToUlong(os?.GetValueOrDefault("FreePhysicalMemory"));var used=ram>freeKb*1024?ram-freeKb*1024:0UL;
+  DateTimeOffset boot=DateTimeOffset.UtcNow;try{var raw=os?.GetValueOrDefault("LastBootUpTime")?.ToString();if(!string.IsNullOrWhiteSpace(raw))boot=ManagementDateTimeConverter.ToDateTime(raw).ToUniversalTime();}catch{}
   var nics=NetworkInterface.GetAllNetworkInterfaces().Where(n=>n.OperationalStatus==OperationalStatus.Up).Select(n=>n.GetIPProperties()).ToArray();
   var ips=nics.SelectMany(n=>n.UnicastAddresses).Where(a=>a.Address.AddressFamily==System.Net.Sockets.AddressFamily.InterNetwork&&!IPAddress.IsLoopback(a.Address)).Select(a=>a.Address.ToString()).Distinct().ToArray();
   var gateways=nics.SelectMany(n=>n.GatewayAddresses).Select(g=>g.Address.ToString()).Where(x=>x!="0.0.0.0").Distinct().ToArray();
   var dns=nics.SelectMany(n=>n.DnsAddresses).Select(a=>a.ToString()).Distinct().ToArray();
-  var domain=cs?["Domain"]?.ToString()??"";
+  var domain=cs?.GetValueOrDefault("Domain")?.ToString()??"";
   var network=new{domain,ipv4=ips,gateways,dns};
-  return new Hardware(cs?["UserName"]?.ToString()??Environment.UserName,domain,os?["Caption"]?.ToString()??"",os?["Version"]?.ToString()??"",os?["BuildNumber"]?.ToString()??"",cs?["Manufacturer"]?.ToString()??"",cs?["Model"]?.ToString()??"",cpu?["Name"]?.ToString()??"",ram,used,(long)Math.Max(0,(DateTimeOffset.UtcNow-boot).TotalSeconds),boot.ToString("O"),ips.FirstOrDefault()??"",network);
+  return new Hardware(cs?.GetValueOrDefault("UserName")?.ToString()??Environment.UserName,domain,os?.GetValueOrDefault("Caption")?.ToString()??"",os?.GetValueOrDefault("Version")?.ToString()??"",os?.GetValueOrDefault("BuildNumber")?.ToString()??"",cs?.GetValueOrDefault("Manufacturer")?.ToString()??"",cs?.GetValueOrDefault("Model")?.ToString()??"",cpu?.GetValueOrDefault("Name")?.ToString()??"",ram,used,(long)Math.Max(0,(DateTimeOffset.UtcNow-boot).TotalSeconds),boot.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),ips.FirstOrDefault()??"",network);
  }
- static ManagementBaseObject? FirstWmi(string query){try{using var searcher=new ManagementObjectSearcher(query);using var results=searcher.Get();foreach(ManagementObject item in results){using(item)return item.Clone() as ManagementBaseObject;}}catch{}return null;}
+ static Dictionary<string,object?>? FirstWmi(string query){try{using var searcher=new ManagementObjectSearcher(query);using var results=searcher.Get();foreach(ManagementObject item in results){using(item){var values=new Dictionary<string,object?>(StringComparer.OrdinalIgnoreCase);foreach(PropertyData property in item.Properties)values[property.Name]=property.Value;return values;}}}catch{}return null;}
  static ulong ToUlong(object? v){try{return Convert.ToUInt64(v??0);}catch{return 0;}}
  static object[] ReadDisks(){
   var list=new List<object>();
@@ -143,7 +143,7 @@ public sealed class AgentWorker:BackgroundService{
   foreach(var location in new[]{StoreLocation.LocalMachine,StoreLocation.CurrentUser}){
    try{using var store=new X509Store(StoreName.My,location);store.Open(OpenFlags.ReadOnly|OpenFlags.OpenExistingOnly);
     foreach(var cert in store.Certificates){
-     try{var thumb=cert.Thumbprint??"";var sha=Convert.ToHexString(SHA256.HashData(cert.RawData));list.Add(new{subjectName=cert.Subject,issuerName=cert.Issuer,serialNumber=cert.SerialNumber,thumbprintSha1=thumb,thumbprintSha256=sha,notBefore=new DateTimeOffset(cert.NotBefore.ToUniversalTime()).ToString("O"),notAfter=new DateTimeOffset(cert.NotAfter.ToUniversalTime()).ToString("O"),storeName=location+"\\My",hasPrivateKey=cert.HasPrivateKey});}catch{}
+     try{var thumb=cert.Thumbprint??"";var sha=Convert.ToHexString(SHA256.HashData(cert.RawData));list.Add(new{subjectName=cert.Subject,issuerName=cert.Issuer,serialNumber=cert.SerialNumber,thumbprintSha1=thumb,thumbprintSha256=sha,notBefore=new DateTimeOffset(cert.NotBefore.ToUniversalTime()).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),notAfter=new DateTimeOffset(cert.NotAfter.ToUniversalTime()).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),storeName=location+"\\My",hasPrivateKey=cert.HasPrivateKey});}catch{}
      if(list.Count>=2000)break;
     }
    }catch{}
