@@ -29,6 +29,7 @@ public static class AgentConfigStore{
 }
 public sealed class AgentPublicState{
  public string Status{get;set;}="awaiting-enrollment";
+ public string? DeviceId{get;set;}
  public string InstallMode{get;set;}="certificate";
  public int Revision{get;set;}
  public string ExpiresAt{get;set;}="";
