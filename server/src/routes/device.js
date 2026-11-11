@@ -59,7 +59,7 @@ router.get("/policy",async(req,res,next)=>{try{
  const now=Date.now(),payload={...r.rows[0].payload,device:{id:req.device.id,name:req.device.deviceName,installMode:req.device.installMode},issuedAt:new Date(now).toISOString(),expiresAt:new Date(now+Math.max(1,Number(process.env.POLICY_VALIDITY_HOURS||24))*3600000).toISOString()};
  const signed=signPolicy(payload);
  res.set("Cache-Control","no-store");
- res.json({revision:Number(r.rows[0].revision),status:"published",keyId:"costalog-policy-v1",signedPayload:Buffer.from(JSON.stringify(payload)).toString("base64"),signature:Buffer.from(signed.signature,"base64url").toString("base64")});
+ res.json({revision:Number(r.rows[0].revision),status:"published",keyId:"costalog-policy-v1",signedPayload:signed.signedPayload,signature:Buffer.from(signed.signature,"base64url").toString("base64")});
  }catch(e){next(e)}});
 router.post("/uninstall-request",async(req,res,next)=>{try{
  const x=z.object({reason:z.string().trim().min(5).max(1000),requestedBy:z.string().max(160).default("")}).strict().parse(req.body),id=uuid();
