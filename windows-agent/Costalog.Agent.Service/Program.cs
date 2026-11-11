@@ -1,0 +1,10 @@
+using Costalog.Agent.Service;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+if(args.Length==2&&args[0]=="--verify-uninstall-approval")return UninstallApprovalVerifier.Validate(args[1]);
+var builder=Host.CreateApplicationBuilder(args);
+builder.Services.AddWindowsService(o=>o.ServiceName="CostalogAgent");
+builder.Services.AddHttpClient<AgentWorker>(c=>c.Timeout=TimeSpan.FromSeconds(25));
+builder.Services.AddHostedService(p=>p.GetRequiredService<AgentWorker>());
+await builder.Build().RunAsync();
+return 0;
