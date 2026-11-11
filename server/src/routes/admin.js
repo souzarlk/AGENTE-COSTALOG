@@ -37,12 +37,13 @@ router.get("/certificates",async(req,res,next)=>{try{const r=await query("SELECT
 router.post("/enrollment-tokens",requireAdminWrite,async(req,res,next)=>{try{
  const x=z.object({
   installationPassword:z.string().trim().min(16).max(128).refine(v=>/[A-Za-z]/.test(v)&&/\d/.test(v),"Use pelo menos 16 caracteres, incluindo letras e números."),
-  expiresMinutes:z.number().int().min(5).max(1440).default(60)
+  expiresMinutes:z.number().int().min(5).max(1440).default(60),
+  installMode:z.enum(["certificate","certificate-and-web"]).default("certificate-and-web")
  }).strict().parse(req.body);
  const id=uuid(),minutes=x.expiresMinutes;
- await query("INSERT INTO enrollment_tokens(id,token_hash,created_by,expires_at) VALUES(?,?,?,TIMESTAMPADD(MINUTE,?,NOW(3)))",[id,hashToken(x.installationPassword),req.admin.id,minutes]);
+ await query("INSERT INTO enrollment_tokens(id,token_hash,created_by,expires_at,install_mode) VALUES(?,?,?,TIMESTAMPADD(MINUTE,?,NOW(3)),?)",[id,hashToken(x.installationPassword),req.admin.id,minutes,x.installMode]);
  await audit(null,"enrollment_created","Senha temporária de instalação criada","",{adminId:req.admin.id,expiresMinutes:minutes});
- res.status(201).json({created:true,expiresMinutes:minutes,singleUse:true,warning:"A senha não pode ser recuperada. Ela será consumida no primeiro cadastro."});
+ res.status(201).json({created:true,expiresMinutes:minutes,singleUse:true,installMode:x.installMode,warning:"A senha não pode ser recuperada. Ela será consumida no primeiro cadastro."});
  }catch(e){next(e)}});
 router.get("/policy",async(req,res,next)=>{try{const r=await query("SELECT revision,status,payload,signature,published_at AS publishedAt FROM policies WHERE status='published' ORDER BY revision DESC LIMIT 1");res.json(r.rows[0]||{revision:0,status:"draft",payload:{mode:"deny-by-default",webRules:[],certificateRules:[]}})}catch(e){next(e)}});
 router.post("/policy/publish",requireAdminWrite,async(req,res,next)=>{try{
