@@ -45,7 +45,7 @@ public sealed class AgentWorker:BackgroundService{
   using var req=new HttpRequestMessage(HttpMethod.Post,Endpoint(c,"api/v1/device/enroll")){Content=JsonContent.Create(body)};
   using var response=await _http.SendAsync(req,ct);await EnsureOk(response,"Enrollment recusado.",ct);
   using var doc=JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));var root=doc.RootElement;
-  c.DeviceId=root.GetProperty("deviceId").GetString();var token=root.GetProperty("deviceToken").GetString();
+  c.DeviceId=root.GetProperty("deviceId").GetString();c.InstallMode=root.GetProperty("installMode").GetString()??c.InstallMode;var token=root.GetProperty("deviceToken").GetString();
   if(string.IsNullOrWhiteSpace(c.DeviceId)||string.IsNullOrWhiteSpace(token))throw new InvalidDataException("A API não retornou credencial válida.");
   c.DeviceTokenProtected=AgentConfigStore.Protect(token);c.EnrollmentTokenProtected=null;AgentConfigStore.Save(c);
   _log.LogInformation("Computador registrado no painel Costalog: {DeviceId}",c.DeviceId);
