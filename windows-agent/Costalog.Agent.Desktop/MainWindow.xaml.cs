@@ -98,7 +98,7 @@ public partial class MainWindow : Window
 
     private static string FriendlyStatus(string status) => status switch
     {
-        "valid" => "Protegido",
+        "valid" => "Política validada",
         "awaiting-enrollment" => "Aguardando cadastro",
         "sync-error" => "Falha de sincronização",
         "no-policy" => "Sem política",
