@@ -42,7 +42,7 @@ router.post("/enrollment-tokens",requireAdminWrite,async(req,res,next)=>{try{
  }).strict().parse(req.body);
  const id=uuid(),minutes=x.expiresMinutes;
  await query("INSERT INTO enrollment_tokens(id,token_hash,created_by,expires_at,install_mode) VALUES(?,?,?,TIMESTAMPADD(MINUTE,?,NOW(3)),?)",[id,hashToken(x.installationPassword),req.admin.id,minutes,x.installMode]);
- await audit(null,"enrollment_created","Senha temporária de instalação criada","",{adminId:req.admin.id,expiresMinutes:minutes});
+ await audit(null,"enrollment_created","Senha temporária de instalação criada","",{adminId:req.admin.id,expiresMinutes:minutes,installMode:x.installMode});
  res.status(201).json({created:true,expiresMinutes:minutes,singleUse:true,installMode:x.installMode,warning:"A senha não pode ser recuperada. Ela será consumida no primeiro cadastro."});
  }catch(e){next(e)}});
 router.get("/policy",async(req,res,next)=>{try{const r=await query("SELECT revision,status,payload,signature,published_at AS publishedAt FROM policies WHERE status='published' ORDER BY revision DESC LIMIT 1");res.json(r.rows[0]||{revision:0,status:"draft",payload:{mode:"deny-by-default",webRules:[],certificateRules:[]}})}catch(e){next(e)}});
