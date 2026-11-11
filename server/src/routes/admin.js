@@ -42,7 +42,7 @@ router.post("/policy/publish",requireAdminWrite,async(req,res,next)=>{try{
   const w=await tx.query("SELECT name,hostname,action,scope_type AS scopeType,scope_value AS scopeValue FROM web_rules WHERE enabled=1 ORDER BY hostname");
   const c=await tx.query("SELECT name,hostname,certificate_scope AS certificateScope FROM certificate_site_rules WHERE enabled=1 ORDER BY hostname");
   const rev=await tx.query("SELECT COALESCE(MAX(revision),0)+1 revision FROM policies");
-  const payload={schemaVersion:1,product:"AGENTE COSTALOG",revision:Number(rev.rows[0].revision),issuedAt:new Date().toISOString(),mode:"managed",defaults:{web:"deny",certificate:"deny"},webRules:w.rows,certificateRules:c.rows,deviceControls:{blockUnauthorizedSoftware:true,usbStorage:"block-by-default",wallpaper:"managed",uninstallRequiresApproval:true}};
+  const payload={schemaVersion:1,product:"AGENTE COSTALOG",revision:Number(rev.rows[0].revision),issuedAt:new Date().toISOString(),mode:"managed",defaults:{web:"deny",certificate:"deny"},webRules:w.rows,certificateRules:c.rows,allowedDestinations:w.rows.filter(rule=>rule.action==="allow").map(rule=>rule.hostname),deviceControls:{blockUnauthorizedSoftware:true,usbStorage:"block-by-default",wallpaper:"managed",uninstallRequiresApproval:true}};
   const signed=signPolicy(payload);await tx.query("INSERT INTO policies(revision,status,payload,signature,created_by) VALUES(?,'published',?,?,?)",[payload.revision,JSON.stringify(payload),signed.signature,req.admin.id]);
   return{revision:payload.revision,webRules:w.rowCount,certificateRules:c.rowCount,publishedAt:new Date().toISOString()};
  });
