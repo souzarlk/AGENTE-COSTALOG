@@ -131,7 +131,7 @@ static string ReadSecret()
             if (buffer.Length > 0)
             {
                 buffer.Length--;
-                Console.Write("\\b \\b");
+                Console.Write("\b \b");
             }
             continue;
         }
