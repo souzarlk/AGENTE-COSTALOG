@@ -1,0 +1,9 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import {verifyCentralToken,hashToken} from "../src/security.js";
+function jwt(claims,secret){const h=Buffer.from(JSON.stringify({alg:"HS256",typ:"JWT"})).toString("base64url"),p=Buffer.from(JSON.stringify(claims)).toString("base64url"),input=h+"."+p,s=crypto.createHmac("sha256",secret).update(input).digest("base64url");return input+"."+s}
+test("accepts a signed Central Fiscal administrator JWT",()=>{const secret="unit-test-central-secret-at-least-32-bytes";process.env.CENTRAL_ADMIN_AUTH_SECRET=secret;process.env.CENTRAL_TOKEN_ISSUER="costalog-central-notas-fiscais";const now=Math.floor(Date.now()/1000);const claims={iss:"costalog-central-notas-fiscais",sub:"ti.admin",iat:now,exp:now+600};assert.equal(verifyCentralToken(jwt(claims,secret)).sub,"ti.admin")});
+test("rejects a JWT signed with another secret",()=>{process.env.CENTRAL_ADMIN_AUTH_SECRET="unit-test-central-secret-at-least-32-bytes";const now=Math.floor(Date.now()/1000);const token=jwt({iss:"costalog-central-notas-fiscais",sub:"ti",iat:now,exp:now+600},"incorrect-signing-secret");assert.throws(()=>verifyCentralToken(token))});
+test("rejects expired Central Fiscal token",()=>{process.env.CENTRAL_ADMIN_AUTH_SECRET="unit-test-central-secret-at-least-32-bytes";const now=Math.floor(Date.now()/1000);assert.throws(()=>verifyCentralToken(jwt({iss:"costalog-central-notas-fiscais",sub:"ti",iat:now-1000,exp:now-1},process.env.CENTRAL_ADMIN_AUTH_SECRET)))});
+test("device token hashes are keyed and deterministic",()=>{process.env.DEVICE_TOKEN_PEPPER="test-device-token-pepper-at-least-32-characters";const a=hashToken("device-secret");assert.equal(a,hashToken("device-secret"));assert.notEqual(a,hashToken("another-secret"))});
