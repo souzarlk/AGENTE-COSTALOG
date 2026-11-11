@@ -50,13 +50,15 @@ jobs:
         id: package
         shell: pwsh
         env:
-          COSTALOG_AGENT_API_BASE_URL: \${{ vars.COSTALOG_AGENT_API_BASE_URL }}
-          COSTALOG_AGENT_INSTALL_MODE: \${{ vars.COSTALOG_AGENT_INSTALL_MODE }}
-          COSTALOG_POLICY_PUBLIC_KEY_PEM: \${{ vars.COSTALOG_POLICY_PUBLIC_KEY_PEM }}
+          COSTALOG_AGENT_API_BASE_URL: ${{ vars.COSTALOG_AGENT_API_BASE_URL }}
+          COSTALOG_AGENT_INSTALL_MODE: ${{ vars.COSTALOG_AGENT_INSTALL_MODE }}
+          COSTALOG_POLICY_PUBLIC_KEY_PEM: ${{ vars.COSTALOG_POLICY_PUBLIC_KEY_PEM }}
         run: |
           $root = "$env:RUNNER_TEMP/costalog-package"
           $api = ($env:COSTALOG_AGENT_API_BASE_URL ?? "").Trim().TrimEnd("/")
-          $mode = ($env:COSTALOG_AGENT_INSTALL_MODE ?? "certificate-and-web").Trim()
+          $mode = $env:COSTALOG_AGENT_INSTALL_MODE
+          if ([string]::IsNullOrWhiteSpace($mode)) { $mode = "certificate-and-web" }
+          $mode = $mode.Trim()
           if ($mode -notin @("certificate", "certificate-and-web")) {
             throw "COSTALOG_AGENT_INSTALL_MODE deve ser certificate ou certificate-and-web."
           }
@@ -87,6 +89,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AGENTE-COSTALOG-Windows-x64
-          path: \${{ runner.temp }}/AGENTE-COSTALOG-Windows-x64.zip
+          path: ${{ runner.temp }}/AGENTE-COSTALOG-Windows-x64.zip
           if-no-files-found: error
           retention-days: 14
