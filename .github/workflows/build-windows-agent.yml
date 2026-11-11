@@ -3,13 +3,15 @@ on:
   push:
     branches: [main, feature/portal-foundation]
     paths:
-      - 'windows-agent/**'
-      - 'AGENTE-COSTALOG.sln'
+      - 'windows-agent/Costalog.Agent.Service/**'
+      - 'windows-agent/Costalog.Agent.Setup/**'
+      - 'windows-agent/installer/**'
       - '.github/workflows/build-windows-agent.yml'
   pull_request:
     paths:
-      - 'windows-agent/**'
-      - 'AGENTE-COSTALOG.sln'
+      - 'windows-agent/Costalog.Agent.Service/**'
+      - 'windows-agent/Costalog.Agent.Setup/**'
+      - 'windows-agent/installer/**'
       - '.github/workflows/build-windows-agent.yml'
   workflow_dispatch:
 
@@ -24,23 +26,17 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Restore solution
-        run: dotnet restore AGENTE-COSTALOG.sln
-
-      - name: Build solution
-        run: dotnet build AGENTE-COSTALOG.sln --configuration Release --no-restore
-
-      - name: Publish WPF desktop app
+      - name: Restore service and setup
         shell: pwsh
-        run: dotnet publish windows-agent/Costalog.Agent.Desktop/Costalog.Agent.Desktop.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -o "$env:RUNNER_TEMP/costalog-package/desktop"
+        run: |
+          dotnet restore windows-agent/Costalog.Agent.Service/Costalog.Agent.Service.csproj
+          dotnet restore windows-agent/Costalog.Agent.Setup/Costalog.Agent.Setup.csproj
 
-      - name: Upload WPF preview (standalone app)
-        uses: actions/upload-artifact@v4
-        with:
-          name: AGENTE-COSTALOG-App-WPF-Preview
-          path: ${{ runner.temp }}/costalog-package/desktop/
-          if-no-files-found: error
-          retention-days: 14
+      - name: Build service and setup
+        shell: pwsh
+        run: |
+          dotnet build windows-agent/Costalog.Agent.Service/Costalog.Agent.Service.csproj --configuration Release --no-restore
+          dotnet build windows-agent/Costalog.Agent.Setup/Costalog.Agent.Setup.csproj --configuration Release --no-restore
 
       - name: Publish Windows service
         shell: pwsh
@@ -50,21 +46,47 @@ jobs:
         shell: pwsh
         run: dotnet publish windows-agent/Costalog.Agent.Setup/Costalog.Agent.Setup.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -o "$env:RUNNER_TEMP/costalog-package/setup"
 
-      - name: Assemble Windows package
+      - name: Assemble package and check deployment configuration
+        id: package
         shell: pwsh
+        env:
+          COSTALOG_AGENT_API_BASE_URL: \${{ vars.COSTALOG_AGENT_API_BASE_URL }}
+          COSTALOG_AGENT_INSTALL_MODE: \${{ vars.COSTALOG_AGENT_INSTALL_MODE }}
+          COSTALOG_POLICY_PUBLIC_KEY_PEM: \${{ vars.COSTALOG_POLICY_PUBLIC_KEY_PEM }}
         run: |
           $root = "$env:RUNNER_TEMP/costalog-package"
+          $api = ($env:COSTALOG_AGENT_API_BASE_URL ?? "").Trim().TrimEnd("/")
+          $mode = ($env:COSTALOG_AGENT_INSTALL_MODE ?? "certificate-and-web").Trim()
+          if ($mode -notin @("certificate", "certificate-and-web")) {
+            throw "COSTALOG_AGENT_INSTALL_MODE deve ser certificate ou certificate-and-web."
+          }
+          $bootstrap = @{
+            apiBaseUrl = $api
+            installMode = $mode
+            agentVersion = "0.1.0"
+          } | ConvertTo-Json -Depth 4
+          [System.IO.File]::WriteAllText("$root/agent-bootstrap.json", $bootstrap, [System.Text.UTF8Encoding]::new($false))
+
           Copy-Item "$root/setup/Costalog.Agent.Setup.exe" "$root/Costalog.Agent.Setup.exe"
           Copy-Item "windows-agent/installer/Install-CostalogAgent.ps1" "$root/Install-CostalogAgent.ps1"
           Copy-Item "windows-agent/installer/Uninstall-CostalogAgent.ps1" "$root/Uninstall-CostalogAgent.ps1"
-          Copy-Item "windows-agent/installer/New-PolicyKeyPair.ps1" "$root/New-PolicyKeyPair.ps1"
-          Copy-Item "windows-agent/installer/README.md" "$root/INSTALLATION-README.md" -ErrorAction SilentlyContinue
-          Compress-Archive -Path "$root/*" -DestinationPath "$env:RUNNER_TEMP/AGENTE-COSTALOG-Windows-x64.zip" -Force
+          Copy-Item "windows-agent/installer/README.md" "$root/INSTALLATION-README.md"
 
-      - name: Upload Windows package
+          $ready = (-not [string]::IsNullOrWhiteSpace($api)) -and (-not [string]::IsNullOrWhiteSpace($env:COSTALOG_POLICY_PUBLIC_KEY_PEM))
+          if ($ready) {
+            [System.IO.File]::WriteAllText("$root/policy-public.pem", $env:COSTALOG_POLICY_PUBLIC_KEY_PEM, [System.Text.UTF8Encoding]::new($false))
+            "ready=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Compress-Archive -Path "$root/service","$root/Costalog.Agent.Setup.exe","$root/Install-CostalogAgent.ps1","$root/Uninstall-CostalogAgent.ps1","$root/INSTALLATION-README.md","$root/agent-bootstrap.json","$root/policy-public.pem" -DestinationPath "$env:RUNNER_TEMP/AGENTE-COSTALOG-Windows-x64.zip" -Force
+          } else {
+            "ready=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Write-Warning "Build compilado, mas o pacote instalável não foi publicado. Configure as variáveis COSTALOG_AGENT_API_BASE_URL e COSTALOG_POLICY_PUBLIC_KEY_PEM."
+          }
+
+      - name: Upload employee installer package
+        if: steps.package.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: AGENTE-COSTALOG-Windows-x64
-          path: ${{ runner.temp }}/AGENTE-COSTALOG-Windows-x64.zip
+          path: \${{ runner.temp }}/AGENTE-COSTALOG-Windows-x64.zip
           if-no-files-found: error
           retention-days: 14
