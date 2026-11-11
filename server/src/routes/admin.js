@@ -34,7 +34,16 @@ router.delete("/certificate-rules/:id",requireAdminWrite,async(req,res,next)=>{t
 router.get("/events",async(req,res,next)=>{try{const limit=Math.min(200,Math.max(1,Number(req.query.limit)||50));const r=await query("SELECT e.id,e.device_id AS deviceId,d.device_name AS deviceName,e.event_type AS eventType,e.severity,e.title,e.message,e.details,e.created_at AS createdAt FROM device_events e LEFT JOIN devices d ON d.id=e.device_id ORDER BY e.created_at DESC LIMIT ?",[limit]);res.json({items:r.rows})}catch(e){next(e)}});
 router.get("/browsing-events",async(req,res,next)=>{try{const limit=Math.min(500,Math.max(1,Number(req.query.limit)||100));const r=await query("SELECT b.id,b.hostname,b.decision,b.policy_revision AS policyRevision,b.rule_name AS ruleName,b.occurred_at AS occurredAt,d.device_name AS deviceName FROM browsing_events b JOIN devices d ON d.id=b.device_id ORDER BY b.occurred_at DESC LIMIT ?",[limit]);res.json({items:r.rows})}catch(e){next(e)}});
 router.get("/certificates",async(req,res,next)=>{try{const r=await query("SELECT c.id,c.subject_name AS subjectName,c.issuer_name AS issuerName,c.serial_number AS serialNumber,c.thumbprint_sha1 AS thumbprintSha1,c.thumbprint_sha256 AS thumbprintSha256,c.not_before AS notBefore,c.not_after AS notAfter,c.store_name AS storeName,c.has_private_key AS hasPrivateKey,c.observed_at AS observedAt,d.device_name AS deviceName FROM installed_certificates c JOIN devices d ON d.id=c.device_id ORDER BY c.not_after");res.json({items:r.rows})}catch(e){next(e)}});
-router.post("/enrollment-tokens",requireAdminWrite,async(req,res,next)=>{try{const token=newToken(32),minutes=Math.min(1440,Math.max(5,Number(req.body?.expiresMinutes)||60)),id=uuid();await query("INSERT INTO enrollment_tokens(id,token_hash,created_by,expires_at) VALUES(?,?,?,TIMESTAMPADD(MINUTE,?,NOW(3)))",[id,hashToken(token),req.admin.id,minutes]);await audit(null,"enrollment_created","Código de instalação gerado","",{adminId:req.admin.id,expiresMinutes:minutes});res.status(201).json({token,expiresMinutes:minutes,warning:"Código de uso único. Compartilhe apenas com o técnico responsável."})}catch(e){next(e)}});
+router.post("/enrollment-tokens",requireAdminWrite,async(req,res,next)=>{try{
+ const x=z.object({
+  installationPassword:z.string().trim().min(16).max(128).refine(v=>/[A-Za-z]/.test(v)&&/\\d/.test(v),"Use pelo menos 16 caracteres, incluindo letras e números."),
+  expiresMinutes:z.number().int().min(5).max(1440).default(60)
+ }).strict().parse(req.body);
+ const id=uuid(),minutes=x.expiresMinutes;
+ await query("INSERT INTO enrollment_tokens(id,token_hash,created_by,expires_at) VALUES(?,?,?,TIMESTAMPADD(MINUTE,?,NOW(3)))",[id,hashToken(x.installationPassword),req.admin.id,minutes]);
+ await audit(null,"enrollment_created","Senha temporária de instalação criada","",{adminId:req.admin.id,expiresMinutes:minutes});
+ res.status(201).json({created:true,expiresMinutes:minutes,singleUse:true,warning:"A senha não pode ser recuperada. Ela será consumida no primeiro cadastro."});
+ }catch(e){next(e)}});
 router.get("/policy",async(req,res,next)=>{try{const r=await query("SELECT revision,status,payload,signature,published_at AS publishedAt FROM policies WHERE status='published' ORDER BY revision DESC LIMIT 1");res.json(r.rows[0]||{revision:0,status:"draft",payload:{mode:"deny-by-default",webRules:[],certificateRules:[]}})}catch(e){next(e)}});
 router.post("/policy/publish",requireAdminWrite,async(req,res,next)=>{try{
  const result=await transaction(async tx=>{
