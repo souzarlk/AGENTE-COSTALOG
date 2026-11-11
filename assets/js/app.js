@@ -165,9 +165,19 @@ async function createEnrollment(form){
 }
 async function fetchJson(url,options={}){const res=await fetch(url,{...options,credentials:"omit",cache:"no-store",headers:{"Accept":"application/json",...(options.body?{"Content-Type":"application/json"}:{}),...(state.token?{"Authorization":"Bearer "+state.token}:{}),...(options.headers||{})}});const body=await res.json().catch(()=>({}));if(!res.ok)throw new Error(body.message||body.error||"Falha na API: HTTP "+res.status);return body}
 async function validateCentral(token){const base=String(cfg.identityBaseUrl||"").replace(/\/+$/,"");if(!base)return false;const r=await fetch(base+(cfg.identityMePath||"/api/auth/me"),{headers:{Authorization:"Bearer "+token,Accept:"application/json"},credentials:"omit",cache:"no-store"});const j=await r.json().catch(()=>({}));return r.ok&&j.authenticated===true}
-async function identityLogin(username,password){const base=String(cfg.identityBaseUrl||"").replace(/\/+$/,"");if(!base)throw new Error("Serviço de identidade não configurado.");const r=await fetch(base+(cfg.identityLoginPath||"/api/auth/login"),{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},credentials:"omit",body:JSON.stringify({username,password})});const j=await r.json().catch(()=>({}));if(!r.ok||!j.token)throw new Error(j.error||"Não foi possível validar o acesso na Central.");if(!await validateCentral(j.token))throw new Error("A Central retornou uma sessão que não pôde ser validada.");state.token=j.token;sessionStorage.setItem(tokenKey,j.token)}
+async function validateAdminSession(token){
+ if(!await validateCentral(token))return false;
+ const base=String(cfg.apiBaseUrl||"").replace(/\/+$/,"");
+ if(!base)return false;
+ try{
+  const r=await fetch(base+(cfg.apiPrefix||"/api/v1")+"/admin/me",{headers:{Authorization:"Bearer "+token,Accept:"application/json"},credentials:"omit",cache:"no-store"});
+  const data=await r.json().catch(()=>({}));
+  return r.ok&&data.authenticated===true&&data.admin?.role==="admin";
+ }catch{return false}
+}
+async function identityLogin(username,password){const base=String(cfg.identityBaseUrl||"").replace(/\/+$/,"");if(!base)throw new Error("Serviço de identidade não configurado.");const r=await fetch(base+(cfg.identityLoginPath||"/api/auth/login"),{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},credentials:"omit",body:JSON.stringify({username,password})});const j=await r.json().catch(()=>({}));if(!r.ok||!j.token)throw new Error(j.error||"Não foi possível validar o acesso na Central.");if(!await validateAdminSession(j.token))throw new Error("A conta não está autorizada no painel do AGENTE COSTALOG ou a API administrativa ainda não está configurada. Solicite liberação à TI.");state.token=j.token;sessionStorage.setItem(tokenKey,j.token)}
 function openApp(){ $("#authGate").hidden=true;$("#app").hidden=false;navigate("overview");}
-async function start(){loadDemo();const stored=sessionStorage.getItem(tokenKey);if(stored){try{if(await validateCentral(stored)){state.token=stored;openApp();return}}catch{}sessionStorage.removeItem(tokenKey)}$("#authGate").hidden=false;$("#app").hidden=true}
+async function start(){loadDemo();const stored=sessionStorage.getItem(tokenKey);if(stored){try{if(await validateAdminSession(stored)){state.token=stored;openApp();return}}catch{}sessionStorage.removeItem(tokenKey)}$("#authGate").hidden=false;$("#app").hidden=true}
 $("#loginForm").addEventListener("submit",async e=>{e.preventDefault();const b=$("#loginButton"),f=$("#loginFeedback");b.disabled=true;b.textContent="Validando acesso…";f.textContent="";try{await identityLogin($("#username").value.trim(),$("#password").value);$("#password").value="";openApp();toast("Sessão da Central reconhecida.")}catch(err){f.textContent=err.message}finally{b.disabled=false;b.innerHTML='Acessar plataforma <span>→</span>'}});
 $("#logoutButton").addEventListener("click",()=>{state.token=null;sessionStorage.removeItem(tokenKey);$("#app").hidden=true;$("#authGate").hidden=false;toast("Sessão compartilhada encerrada.")});
 $("#sideNav").addEventListener("click",e=>{const b=e.target.closest("[data-view]");if(b)navigate(b.dataset.view)});
