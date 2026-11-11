@@ -36,7 +36,7 @@ router.get("/browsing-events",async(req,res,next)=>{try{const limit=Math.min(500
 router.get("/certificates",async(req,res,next)=>{try{const r=await query("SELECT c.id,c.subject_name AS subjectName,c.issuer_name AS issuerName,c.serial_number AS serialNumber,c.thumbprint_sha1 AS thumbprintSha1,c.thumbprint_sha256 AS thumbprintSha256,c.not_before AS notBefore,c.not_after AS notAfter,c.store_name AS storeName,c.has_private_key AS hasPrivateKey,c.observed_at AS observedAt,d.device_name AS deviceName FROM installed_certificates c JOIN devices d ON d.id=c.device_id ORDER BY c.not_after");res.json({items:r.rows})}catch(e){next(e)}});
 router.post("/enrollment-tokens",requireAdminWrite,async(req,res,next)=>{try{
  const x=z.object({
-  installationPassword:z.string().trim().min(16).max(128).refine(v=>/[A-Za-z]/.test(v)&&/\d/.test(v),"Use pelo menos 16 caracteres, incluindo letras e números."),
+  installationPassword:z.string().trim().min(20).max(128).refine(v=>/[A-Za-z]/.test(v)&&/\d/.test(v),"Use pelo menos 16 caracteres, incluindo letras e números."),
   expiresMinutes:z.number().int().min(5).max(1440).default(60),
   installMode:z.enum(["certificate","certificate-and-web"]).default("certificate-and-web")
  }).strict().parse(req.body);
