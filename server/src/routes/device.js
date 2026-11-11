@@ -2,7 +2,7 @@ import {Router} from "express";
 import crypto from "node:crypto";
 import {z} from "zod";
 import {query,transaction} from "../db.js";
-import {newToken,hashToken} from "../security.js";
+import {newToken,hashToken,signPolicy} from "../security.js";
 import {requireDevice} from "../middleware.js";
 const router=Router(),uuid=()=>crypto.randomUUID();
 const enrollment=z.object({enrollmentToken:z.string().min(20).max(200),deviceName:z.string().trim().min(1).max(120),windowsUsername:z.string().max(120).default(""),domainName:z.string().max(160).default(""),osCaption:z.string().max(160).default(""),osVersion:z.string().max(80).default(""),osBuild:z.string().max(80).default(""),manufacturer:z.string().max(120).default(""),model:z.string().max(160).default(""),cpuName:z.string().max(180).default(""),ramTotalBytes:z.number().int().min(0).default(0),agentVersion:z.string().max(40).default(""),installMode:z.enum(["certificate","certificate-and-web"]),bootAt:z.string().datetime().optional()}).strict();
@@ -47,10 +47,20 @@ router.post("/events",async(req,res,next)=>{try{
 router.post("/browsing-events",async(req,res,next)=>{try{
  const x=z.object({hostname:z.string().min(1).max(253),decision:z.enum(["allowed","blocked"]),policyRevision:z.number().int().min(0).default(0),ruleName:z.string().max(160).default(""),occurredAt:z.string().datetime().optional()}).strict().parse(req.body);
  if(/[/:?#@]/.test(x.hostname))return res.status(400).json({message:"Envie somente hostname/domínio, sem URL completa."});
- await query("INSERT INTO browsing_events(id,device_id,hostname,decision,policy_revision,rule_name,occurred_at) VALUES(?,?,?,?,?,?,?)",[uuid(),req.device.id,x.hostname.toLowerCase(),x.decision,x.policyRevision,x.ruleName,x.occurredAt||new Date().toISOString()]);
+ await transaction(async tx=>{
+  await tx.query("INSERT INTO browsing_events(id,device_id,hostname,decision,policy_revision,rule_name,occurred_at) VALUES(?,?,?,?,?,?,?)",[uuid(),req.device.id,x.hostname.toLowerCase(),x.decision,x.policyRevision,x.ruleName,x.occurredAt||new Date().toISOString()]);
+  if(x.decision==="blocked")await tx.query("INSERT INTO device_events(id,device_id,event_type,severity,title,message,details) VALUES(?,?,?,'warning',?,?,?)",[uuid(),req.device.id,"browser_navigation_blocked","Navegação bloqueada",x.hostname,JSON.stringify({hostname:x.hostname,ruleName:x.ruleName,policyRevision:x.policyRevision})]);
+ });
  res.status(202).json({accepted:true});
  }catch(e){next(e)}});
-router.get("/policy",async(req,res,next)=>{try{const r=await query("SELECT revision,payload,signature,published_at AS publishedAt FROM policies WHERE status='published' ORDER BY revision DESC LIMIT 1");if(!r.rowCount)return res.status(404).json({message:"Política ainda não publicada."});res.set("Cache-Control","no-store");res.json(r.rows[0])}catch(e){next(e)}});
+router.get("/policy",async(req,res,next)=>{try{
+ const r=await query("SELECT revision,payload FROM policies WHERE status='published' ORDER BY revision DESC LIMIT 1");
+ if(!r.rowCount)return res.status(404).json({message:"Política ainda não publicada."});
+ const now=Date.now(),payload={...r.rows[0].payload,device:{id:req.device.id,name:req.device.deviceName,installMode:req.device.installMode},issuedAt:new Date(now).toISOString(),expiresAt:new Date(now+Math.max(1,Number(process.env.POLICY_VALIDITY_HOURS||24))*3600000).toISOString()};
+ const signed=signPolicy(payload);
+ res.set("Cache-Control","no-store");
+ res.json({revision:Number(r.rows[0].revision),status:"published",keyId:"costalog-policy-v1",signedPayload:Buffer.from(JSON.stringify(payload)).toString("base64"),signature:Buffer.from(signed.signature,"base64url").toString("base64")});
+ }catch(e){next(e)}});
 router.post("/uninstall-request",async(req,res,next)=>{try{
  const x=z.object({reason:z.string().trim().min(5).max(1000),requestedBy:z.string().max(160).default("")}).strict().parse(req.body),id=uuid();
  await query("INSERT INTO uninstall_requests(id,device_id,request_reason,requested_by,status) VALUES(?,?,?,?,'pending')",[id,req.device.id,x.reason,x.requestedBy]);
