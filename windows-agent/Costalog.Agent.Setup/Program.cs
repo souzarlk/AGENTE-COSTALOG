@@ -25,7 +25,8 @@ var privateRoot=Path.Combine(root,"Private");var publicRoot=Path.Combine(root,"P
 Directory.CreateDirectory(privateRoot);Directory.CreateDirectory(publicRoot);
 var cfg=new{apiBaseUrl=api,installMode=mode,enrollmentTokenProtected=Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(enrollment),null,DataProtectionScope.LocalMachine)),deviceTokenProtected=(string?)null,deviceId=(string?)null,lastPolicyRevision=0,policyPublicKeyPem=pem,agentVersion="0.1.0"};
 var opts=new JsonSerializerOptions(JsonSerializerDefaults.Web){WriteIndented=true};
-var target=Path.Combine(privateRoot,"agent.json"),temp=target+".tmp";
+string target=Path.Combine(privateRoot,"agent.json");
+string temp=target+".tmp";
 await File.WriteAllTextAsync(temp,JsonSerializer.Serialize(cfg,opts),new UTF8Encoding(false));File.Move(temp,target,true);
 var state=new{status="awaiting-enrollment",installMode=mode,revision=0,expiresAt="",allowedDestinations=Array.Empty<string>(),updatedAt=DateTimeOffset.UtcNow.ToString("O")};
 await File.WriteAllTextAsync(Path.Combine(publicRoot,"agent-public-state.json"),JsonSerializer.Serialize(state,opts),new UTF8Encoding(false));
