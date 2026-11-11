@@ -8,13 +8,18 @@ const router=Router(),uuid=()=>crypto.randomUUID();
 const enrollment=z.object({enrollmentToken:z.string().min(20).max(200),deviceName:z.string().trim().min(1).max(120),windowsUsername:z.string().max(120).default(""),domainName:z.string().max(160).default(""),osCaption:z.string().max(160).default(""),osVersion:z.string().max(80).default(""),osBuild:z.string().max(80).default(""),manufacturer:z.string().max(120).default(""),model:z.string().max(160).default(""),cpuName:z.string().max(180).default(""),ramTotalBytes:z.number().int().min(0).default(0),agentVersion:z.string().max(40).default(""),installMode:z.enum(["certificate","certificate-and-web"]),bootAt:z.string().datetime().optional()}).strict();
 router.post("/enroll",async(req,res,next)=>{try{
  const x=enrollment.parse(req.body),deviceId=uuid(),deviceToken=newToken(48);
+ let assignedMode="certificate-and-web";
  await transaction(async tx=>{
-  const updated=await tx.query("UPDATE enrollment_tokens SET used_at=NOW(3) WHERE token_hash=? AND used_at IS NULL AND expires_at>NOW(3)",[hashToken(x.enrollmentToken)]);
-  if(!updated.rowCount){const e=new Error("Código de instalação inválido, expirado ou já utilizado.");e.status=401;throw e}
-  await tx.query("INSERT INTO devices(id,device_name,windows_username,domain_name,os_caption,os_version,os_build,manufacturer,model,cpu_name,ram_total_bytes,agent_version,install_mode,token_hash,status,first_boot_at,last_boot_at,last_seen_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?,NOW(3))",[deviceId,x.deviceName,x.windowsUsername,x.domainName,x.osCaption,x.osVersion,x.osBuild,x.manufacturer,x.model,x.cpuName,x.ramTotalBytes,x.agentVersion,x.installMode,hashToken(deviceToken),x.bootAt||null,x.bootAt||null]);
-  await tx.query("INSERT INTO device_events(id,device_id,event_type,severity,title,message,details) VALUES(?,?,?,'info',?,?,?)",[uuid(),deviceId,"device_enrolled","Agente instalado",x.deviceName,JSON.stringify({agentVersion:x.agentVersion,installMode:x.installMode})]);
+  const credential=await tx.query("SELECT id,install_mode AS installMode FROM enrollment_tokens WHERE token_hash=? AND used_at IS NULL AND expires_at>NOW(3) FOR UPDATE",[hashToken(x.enrollmentToken)]);
+  const enrollmentRow=credential.rows[0];
+  if(!enrollmentRow){const e=new Error("Senha de instalação inválida, expirada ou já utilizada.");e.status=401;throw e}
+  assignedMode=enrollmentRow.installMode;
+  const consumed=await tx.query("UPDATE enrollment_tokens SET used_at=NOW(3) WHERE id=? AND used_at IS NULL",[enrollmentRow.id]);
+  if(!consumed.rowCount){const e=new Error("Senha de instalação já utilizada.");e.status=401;throw e}
+  await tx.query("INSERT INTO devices(id,device_name,windows_username,domain_name,os_caption,os_version,os_build,manufacturer,model,cpu_name,ram_total_bytes,agent_version,install_mode,token_hash,status,first_boot_at,last_boot_at,last_seen_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?,NOW(3))",[deviceId,x.deviceName,x.windowsUsername,x.domainName,x.osCaption,x.osVersion,x.osBuild,x.manufacturer,x.model,x.cpuName,x.ramTotalBytes,x.agentVersion,assignedMode,hashToken(deviceToken),x.bootAt||null,x.bootAt||null]);
+  await tx.query("INSERT INTO device_events(id,device_id,event_type,severity,title,message,details) VALUES(?,?,?,'info',?,?,?)",[uuid(),deviceId,"device_enrolled","Agente instalado",x.deviceName,JSON.stringify({agentVersion:x.agentVersion,installMode:assignedMode})]);
  });
- res.status(201).json({deviceId,deviceToken,warning:"Credencial exibida uma única vez. Proteja-a com DPAPI no Windows."});
+ res.status(201).json({deviceId,deviceToken,installMode:assignedMode,warning:"Credencial exibida uma única vez. Proteja-a com DPAPI no Windows."});
  }catch(e){next(e)}});
 router.use(requireDevice);
 router.post("/heartbeat",async(req,res,next)=>{try{
