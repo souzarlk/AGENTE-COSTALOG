@@ -47,9 +47,9 @@ if (mode is not ("certificate" or "certificate-and-web"))
 Console.WriteLine("Modo atribuído pela TI: " + (mode == "certificate" ? "Certificados" : "Certificados + navegação"));
 Console.Write("Senha temporária de instalação definida no painel da TI: ");
 var enrollment = ReadSecret().Trim();
-if (enrollment.Length < 16)
+if (enrollment.Length < 20)
 {
-    Console.Error.WriteLine("A senha temporária deve possuir pelo menos 16 caracteres.");
+    Console.Error.WriteLine("A senha temporária deve possuir pelo menos 20 caracteres.");
     return 2;
 }
 
