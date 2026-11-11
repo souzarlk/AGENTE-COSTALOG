@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 
 namespace Costalog.Agent.Desktop;
 
@@ -10,6 +11,8 @@ public partial class MainWindow : Window
     private static readonly string PublicStatePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "Costalog", "Agent", "Public", "agent-public-state.json");
+
+    private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(15) };
 
     private static readonly Dictionary<string, (string Title, string Description)> Modules = new()
     {
@@ -31,6 +34,9 @@ public partial class MainWindow : Window
         InitializeComponent();
         DeviceNameText.Text = Environment.MachineName;
         LoadLocalState();
+        _refreshTimer.Tick += (_, _) => LoadLocalState();
+        _refreshTimer.Start();
+        Closed += (_, _) => _refreshTimer.Stop();
     }
 
     private void LoadLocalState()
@@ -45,7 +51,10 @@ public partial class MainWindow : Window
             {
                 AgentStatusText.Text = "Serviço não configurado";
                 AgentMetric.Text = "Não vinculado";
+                PolicyMetric.Text = "Pendente";
+                LastUpdateText.Text = "Estado local indisponível";
                 DeviceDetailsText.Text = $"Computador: {Environment.MachineName}\nWindows: {os}\nO serviço do agente ainda não publicou seu estado local.";
+                PolicyDetailsText.Text = "O serviço ainda não foi configurado neste computador.";
                 return;
             }
 
@@ -53,24 +62,32 @@ public partial class MainWindow : Window
             var root = json.RootElement;
             var status = ReadString(root, "status", "unknown");
             var mode = ReadString(root, "installMode", "—");
+            var deviceId = ReadString(root, "deviceId", "aguardando registro");
             var revision = root.TryGetProperty("revision", out var rev) ? rev.GetInt32() : 0;
             var updated = ReadString(root, "updatedAt", "");
-            AgentStatusText.Text = FriendlyStatus(status);
-            AgentMetric.Text = FriendlyStatus(status);
+            var hasTimestamp = DateTimeOffset.TryParse(updated, out var parsed);
+            var isFresh = hasTimestamp && parsed <= DateTimeOffset.UtcNow.AddMinutes(1) &&
+                          DateTimeOffset.UtcNow - parsed <= TimeSpan.FromMinutes(3);
+            var displayStatus = isFresh ? status : "service-offline";
+
+            AgentStatusText.Text = FriendlyStatus(displayStatus);
+            AgentMetric.Text = FriendlyStatus(displayStatus);
             PolicyMetric.Text = revision > 0 ? $"Rev. {revision}" : "Pendente";
-            LastUpdateText.Text = DateTimeOffset.TryParse(updated, out var parsed)
-                ? $"Atualizado {parsed.ToLocalTime():dd/MM HH:mm}"
-                : "Estado local do agente";
+            LastUpdateText.Text = hasTimestamp
+                ? $"Atualizado {parsed.ToLocalTime():dd/MM HH:mm}" + (isFresh ? "" : " • desatualizado")
+                : "Estado local sem data de atualização";
+
             var destinations = root.TryGetProperty("allowedDestinations", out var hosts) && hosts.ValueKind == JsonValueKind.Array
                 ? string.Join(", ", hosts.EnumerateArray().Select(x => x.GetString()).Where(x => !string.IsNullOrWhiteSpace(x)))
                 : "Não informado";
-            DeviceDetailsText.Text = $"Computador: {Environment.MachineName}\nWindows: {os}\nModo de instalação: {mode}\nDispositivo: {ReadString(root, "deviceId", "aguardando registro")}";
-            PolicyDetailsText.Text = $"Política: {FriendlyStatus(status)} • Revisão: {revision}\nDestinos autorizados recebidos: {destinations}";
+            DeviceDetailsText.Text = $"Computador: {Environment.MachineName}\nWindows: {os}\nModo de instalação: {mode}\nDispositivo: {deviceId}";
+            PolicyDetailsText.Text = $"Estado do agente: {FriendlyStatus(displayStatus)} • Revisão: {revision}\nDestinos autorizados recebidos: {destinations}";
         }
         catch (Exception ex)
         {
             AgentStatusText.Text = "Falha ao ler estado";
             AgentMetric.Text = "Verificar";
+            LastUpdateText.Text = "Não foi possível atualizar";
             DeviceDetailsText.Text = "Não foi possível ler o estado local do agente: " + ex.Message;
         }
     }
@@ -85,6 +102,7 @@ public partial class MainWindow : Window
         "awaiting-enrollment" => "Aguardando cadastro",
         "sync-error" => "Falha de sincronização",
         "no-policy" => "Sem política",
+        "service-offline" => "Serviço sem atualização",
         _ => "Não verificado"
     };
 
