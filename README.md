@@ -1,68 +1,79 @@
 # AGENTE COSTALOG
 
-Plataforma corporativa de segurança e gestão de endpoints Windows da COSTALOG, composta por aplicativo desktop, serviço local e painel central da TI.
+Plataforma corporativa de monitoramento e administração de endpoints Windows da COSTALOG.
 
-> Este repositório é independente do portal **Certificados Costalog**. O AGENTE aplica políticas e monitora computadores; não é um cadastro nem um repositório de arquivos PFX/P12.
+> O portal de certificados digitais Costalog permanece independente. O AGENTE COSTALOG não armazena nem transfere arquivos PFX/P12 e nunca envia chaves privadas.
 
-## Arquitetura escolhida
+## Arquitetura definida
 
-- **Aplicativo desktop:** C#/.NET 8 com WPF, instalado diretamente nos computadores Windows. É a interface local para consulta de status e acesso aos módulos.
-- **Serviço Windows:** processo em segundo plano, independente da janela WPF, responsável por inventário, telemetria, sincronização de políticas e execução das proteções autorizadas.
-- **Painel central da TI:** interface administrativa para visualizar dispositivos, receber alertas, gerir políticas e aprovar ações privilegiadas.
-- **API:** Node.js + Express, com autenticação por dispositivo, autorização administrativa e comunicação HTTPS.
-- **Banco de dados:** MariaDB 10.6+ (InnoDB/utf8mb4).
-- **Navegadores:** extensão gerenciada para Chrome e Edge, com políticas distribuídas centralmente.
-- **Políticas:** documentos versionados e assinados digitalmente.
+- **Portal web administrativo:** exclusivo da TI e de contas explicitamente autorizadas. É onde a equipe visualiza os computadores, gerencia regras, define perfis de instalação, cria senhas temporárias e baixa o pacote do agente.
+- **Agente Windows:** instalado nos computadores dos funcionários como serviço em segundo plano. Não instala painel, janela de monitoramento, ícone de bandeja ou atalho local para o funcionário.
+- **Instalador:** executado por técnico autorizado como Administrador. Solicita uma senha temporária de uso único, criada pela TI no portal.
+- **API:** Node.js + Express, com autenticação independente por dispositivo, validação de sessão administrativa, rate limiting e comunicação HTTPS.
+- **Banco:** MariaDB/InnoDB.
+- **Políticas:** versionadas e assinadas digitalmente. O perfil escolhido pela TI é vinculado à credencial de instalação e aplicado no cadastro do dispositivo.
+
+## Fluxo de implantação previsto
+
+1. A TI baixa o pacote Windows no portal administrativo e o transfere ao computador autorizado.
+2. Um técnico executa Install-CostalogAgent.ps1 como Administrador.
+3. O assistente pede a senha temporária definida pela TI.
+4. A senha é validada e consumida uma única vez pela API. O dispositivo recebe uma credencial própria, protegida com DPAPI LocalMachine.
+5. O serviço inicia automaticamente em segundo plano, envia heartbeat/telemetria e sincroniza políticas assinadas.
+6. A TI acompanha o dispositivo pelo portal web.
 
 ## Estrutura
 
-- `AGENTE-COSTALOG.sln`: solução para Visual Studio.
-- `windows-agent/Costalog.Agent.Desktop/`: aplicativo WPF instalado no PC.
-- `windows-agent/Costalog.Agent.Service/`: serviço Windows de monitoramento.
-- `windows-agent/Costalog.Agent.Setup/`: utilitário de configuração/instalação em evolução.
-- `browser-extension/`: extensão gerenciada Chrome/Edge.
-- `server/`: API, migrações MariaDB, autenticação, políticas e auditoria.
-- `docs/`: arquitetura, implantação, privacidade, hardening e runbooks.
+- AGENTE-COSTALOG.sln: solução .NET usada no desenvolvimento.
+- windows-agent/Costalog.Agent.Service/: serviço Windows em segundo plano.
+- windows-agent/Costalog.Agent.Setup/: assistente de instalação e configuração inicial.
+- windows-agent/Costalog.Agent.Desktop/: protótipo WPF legado, não incluído no pacote distribuído aos funcionários.
+- windows-agent/installer/: scripts de instalação, remoção aprovada e geração das chaves de política.
+- server/: API, migrações MariaDB, autenticação, políticas e auditoria.
+- assets/ e index.html: portal administrativo.
 
 ## Compilar no Windows
 
-Requisitos: Windows 10/11, .NET 8 SDK e workload **Desenvolvimento para desktop com .NET** do Visual Studio 2022 (ou SDK equivalente).
+Requisitos: Windows 10/11 e .NET 8 SDK.
 
-```powershell
-dotnet restore AGENTE-COSTALOG.sln
-dotnet build AGENTE-COSTALOG.sln --configuration Release
-dotnet run --project windows-agent/Costalog.Agent.Desktop/Costalog.Agent.Desktop.csproj
-```
+~~~powershell
+dotnet restore windows-agent/Costalog.Agent.Service/Costalog.Agent.Service.csproj
+dotnet build windows-agent/Costalog.Agent.Service/Costalog.Agent.Service.csproj --configuration Release
+dotnet restore windows-agent/Costalog.Agent.Setup/Costalog.Agent.Setup.csproj
+dotnet build windows-agent/Costalog.Agent.Setup/Costalog.Agent.Setup.csproj --configuration Release
+~~~
 
-O workflow `.github/workflows/build-windows-agent.yml` compila o aplicativo WPF e o serviço em runner Windows do GitHub Actions.
+O workflow .github/workflows/build-windows-agent.yml compila somente o serviço e o assistente para o pacote do funcionário. O WPF legado não é publicado no pacote.
 
-## Módulos planejados
+## Configuração necessária antes de liberar o instalador
 
-- Visão geral e postura de segurança da frota.
-- Inventário de dispositivos e telemetria (hostname, Windows, hardware, memória, discos, uptime e último boot).
-- Saúde do Windows e eventos relevantes de erro/serviço.
-- Análise de espaço em disco e saúde SMART de SSDs.
-- Descoberta de certificados instalados: somente metadados públicos (titular, emissor, validade, thumbprint e store), nunca chaves privadas.
-- Proteção de certificados e regras específicas de destinos permitidos.
-- Bloqueio de navegação por política central e alertas de domínios suspeitos.
-- Políticas de dispositivos USB e prevenção de vazamento de dados.
-- Inventário de programas, restrição de instalação e alertas de adulteração.
-- Gestão de rede, usuários e sessões.
-- Monitoramento de e-mail e alertas operacionais.
-- Painel de administração, auditoria, políticas e autorização de ações privilegiadas.
+A equipe responsável pela infraestrutura precisa configurar:
 
-## Segurança e limites
+- COSTALOG_AGENT_API_BASE_URL nas variáveis do repositório.
+- COSTALOG_POLICY_PUBLIC_KEY_PEM nas variáveis do repositório.
+- POLICY_SIGNING_PRIVATE_KEY_BASE64 no ambiente seguro do servidor da API. A chave privada nunca deve ser commitada nem incluída no ZIP.
+- CENTRAL_ADMIN_SUBJECTS no servidor, com os identificadores sub exatos das contas da Central autorizadas a administrar o agente.
+- apiBaseUrl e agentDownloadUrl em assets/js/config.js, depois que a API e a release estiverem publicadas.
+- Origem do portal na lista ALLOWED_ORIGINS da API.
+- API/MariaDB publicados e acessíveis por HTTPS.
 
-- Não coletar teclas digitadas, conteúdo de formulários, senhas, cookies, histórico completo de URLs ou capturas de tela.
-- Telemetria de navegação limitada a domínio, horário, dispositivo e decisão da política, com retenção proporcional e configurável.
-- Certificados são inventariados somente por metadados públicos. A chave privada nunca é enviada ao painel.
-- Ações administrativas devem ser autorizadas, auditadas e executadas pelo serviço com privilégio mínimo.
-- Não existe promessa de resistência absoluta à remoção por um administrador local. Hardening requer políticas Windows/Intune/WDAC, ACLs de serviço e procedimento de recuperação da TI.
-- Não armazenar senha administrativa global em texto puro ou embutida no instalador.
-- Funcionalidades só serão marcadas como ativas após implementação, testes e piloto controlado. Seções ainda em desenvolvimento não aplicam bloqueios.
+O workflow só envia o artefato instalável quando a URL HTTPS e a chave pública estiverem presentes. Para criar uma URL estável de download, publique uma tag agent-v* depois que a configuração estiver pronta; o workflow anexa o ZIP à Release.
 
-## Estado atual
+## Funcionalidades existentes e pendentes
 
-A fundação inicial do aplicativo WPF foi adicionada à branch `feature/portal-foundation`, junto de uma solução Visual Studio e workflow de compilação Windows. A interface já apresenta navegação e lê o estado público local do serviço quando disponível. Os módulos de proteção ainda precisam ser implementados e validados individualmente. O painel central e a API continuam em evolução; ainda não é uma versão pronta para produção.
+**Base já implementada no serviço/API:** enrollment de uso único, heartbeat, inventário inicial de hardware e Windows, memória, uptime, rede, discos e inventário de certificados usando somente metadados públicos; sincronização e validação criptográfica de políticas assinadas; registro de eventos e pedidos de autorização de remoção.
 
-**Não instalar em produção antes da validação da TI e de um piloto controlado.**
+**Ainda não liberado como proteção efetiva:** bloqueio de sites no Windows/navegadores, controle técnico de uso de certificado por domínio, USB, restrição de instalação de programas, sensor SMART confiável, inventário completo de softwares e demais módulos de segurança planejados. As telas de regras do portal também precisam ser conectadas aos dados reais da API; partes do portal ainda contêm dados ilustrativos. Não interpretar uma regra exibida como bloqueio já aplicado.
+
+## Segurança, privacidade e operação
+
+- Não coletar senhas, teclas digitadas, cookies, conteúdo de formulários, mensagens ou capturas de tela.
+- Metadados de certificados são enviados para inventário; nenhuma chave privada é exportada.
+- A navegação deve ser limitada a dados técnicos corporativos e informada aos funcionários em política interna apropriada.
+- O serviço e arquivos protegidos reduzem alterações por usuários padrão, mas não são invulneráveis a um administrador local. Hardening adicional requer política Windows/Intune/WDAC e procedimento formal de recuperação.
+- A remoção permanece sujeita a aprovação assinada da TI.
+- Não distribuir em massa até concluir configuração da API, publicação do pacote, testes de enforcement e piloto controlado.
+
+## Estado
+
+A implementação permanece na branch feature/portal-foundation. A compilação do serviço e do assistente foi validada em GitHub Actions em revisões recentes; o upload do instalador ficou deliberadamente condicionado às variáveis de implantação. O projeto ainda não é uma versão de produção e os controles listados como pendentes precisam ser desenvolvidos e homologados individualmente.
