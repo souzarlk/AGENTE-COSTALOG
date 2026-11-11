@@ -1,0 +1,30 @@
+name: Build Windows Agent
+on:
+  push:
+    branches: [main, feature/portal-foundation]
+    paths:
+      - 'windows-agent/**'
+      - '.github/workflows/build-windows-agent.yml'
+  pull_request:
+    paths:
+      - 'windows-agent/**'
+      - '.github/workflows/build-windows-agent.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore desktop app
+        run: dotnet restore windows-agent/Costalog.Agent.Desktop/Costalog.Agent.Desktop.csproj
+      - name: Build desktop app
+        run: dotnet build windows-agent/Costalog.Agent.Desktop/Costalog.Agent.Desktop.csproj --configuration Release --no-restore
+      - name: Restore Windows service
+        run: dotnet restore windows-agent/Costalog.Agent.Service/Costalog.Agent.Service.csproj
+      - name: Build Windows service
+        run: dotnet build windows-agent/Costalog.Agent.Service/Costalog.Agent.Service.csproj --configuration Release --no-restore
