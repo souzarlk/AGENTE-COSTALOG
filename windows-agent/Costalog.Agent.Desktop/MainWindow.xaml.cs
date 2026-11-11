@@ -1,4 +1,5 @@
 using System.IO;
+using System.Management;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -12,7 +13,7 @@ public partial class MainWindow : Window
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "Costalog", "Agent", "Public", "agent-public-state.json");
 
-    private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(15) };
+    private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromSeconds(30) };
 
     private static readonly Dictionary<string, (string Title, string Description)> Modules = new()
     {
@@ -41,6 +42,8 @@ public partial class MainWindow : Window
 
     private void LoadLocalState()
     {
+        LoadLocalDiagnostics();
+
         try
         {
             var os = Environment.OSVersion.VersionString;
@@ -90,6 +93,105 @@ public partial class MainWindow : Window
             LastUpdateText.Text = "Não foi possível atualizar";
             DeviceDetailsText.Text = "Não foi possível ler o estado local do agente: " + ex.Message;
         }
+    }
+
+    private void LoadLocalDiagnostics()
+    {
+        try
+        {
+            var system = ReadFirstWmi("SELECT Manufacturer,Model,TotalPhysicalMemory FROM Win32_ComputerSystem");
+            var operatingSystem = ReadFirstWmi("SELECT TotalVisibleMemorySize,FreePhysicalMemory FROM Win32_OperatingSystem");
+            var processor = ReadFirstWmi("SELECT Name,LoadPercentage FROM Win32_Processor");
+
+            var manufacturer = GetWmiString(system, "Manufacturer");
+            var model = GetWmiString(system, "Model");
+            var cpu = GetWmiString(processor, "Name");
+            var cpuLoad = GetWmiNumber(processor, "LoadPercentage");
+
+            var ramTotal = GetWmiUInt64(system, "TotalPhysicalMemory");
+            var ramTotalKb = GetWmiUInt64(operatingSystem, "TotalVisibleMemorySize");
+            var ramFreeKb = GetWmiUInt64(operatingSystem, "FreePhysicalMemory");
+            var ramUsed = ramTotalKb > ramFreeKb ? (ramTotalKb - ramFreeKb) * 1024UL : 0UL;
+            if (ramTotal == 0) ramTotal = ramTotalKb * 1024UL;
+
+            var drives = new List<string>();
+            foreach (var drive in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed))
+            {
+                try
+                {
+                    if (!drive.IsReady) continue;
+                    var total = (ulong)drive.TotalSize;
+                    var free = (ulong)drive.AvailableFreeSpace;
+                    var used = total == 0 ? 0d : Math.Round((double)(total - free) * 100d / total);
+                    drives.Add($"{drive.Name.TrimEnd('\\')} — {used:0}% usado ({FormatBytes(total - free)} / {FormatBytes(total)})");
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+
+            var cpuText = cpuLoad.HasValue ? $" — carga instantânea informada pelo Windows: {cpuLoad.Value:0}%" : "";
+            LocalHardwareText.Text =
+                $"Fabricante/modelo: {JoinKnown(manufacturer, model)}\n" +
+                $"Processador: {Fallback(cpu, "Não identificado")}{cpuText}\n" +
+                $"Memória RAM: {FormatBytes(ramUsed)} em uso / {FormatBytes(ramTotal)} total\n" +
+                $"Unidades locais: {(drives.Count > 0 ? string.Join("\n", drives) : "Nenhuma unidade fixa pronta")}\n" +
+                $"Atualização local: {DateTime.Now:dd/MM/yyyy HH:mm:ss}";
+        }
+        catch (Exception ex)
+        {
+            LocalHardwareText.Text = "O Windows não permitiu concluir o diagnóstico local: " + ex.Message;
+        }
+    }
+
+    private static Dictionary<string, object?>? ReadFirstWmi(string query)
+    {
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(query);
+            using var results = searcher.Get();
+            foreach (ManagementObject item in results)
+            {
+                using (item)
+                {
+                    var values = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                    foreach (PropertyData property in item.Properties)
+                        values[property.Name] = property.Value;
+                    return values;
+                }
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private static string GetWmiString(Dictionary<string, object?>? values, string key) =>
+        values?.TryGetValue(key, out var value) == true ? value?.ToString() ?? "" : "";
+
+    private static ulong GetWmiUInt64(Dictionary<string, object?>? values, string key)
+    {
+        try { return values?.TryGetValue(key, out var value) == true ? Convert.ToUInt64(value ?? 0) : 0UL; }
+        catch { return 0UL; }
+    }
+
+    private static double? GetWmiNumber(Dictionary<string, object?>? values, string key)
+    {
+        try { return values?.TryGetValue(key, out var value) == true && value is not null ? Convert.ToDouble(value) : null; }
+        catch { return null; }
+    }
+
+    private static string JoinKnown(string first, string second) =>
+        string.Join(" ", new[] { first, second }.Where(x => !string.IsNullOrWhiteSpace(x)));
+
+    private static string Fallback(string value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value;
+
+    private static string FormatBytes(ulong bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        double value = bytes;
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1) { value /= 1024; unit++; }
+        return $"{value:0.##} {units[unit]}";
     }
 
     private static string ReadString(JsonElement element, string name, string fallback) =>
