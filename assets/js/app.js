@@ -148,7 +148,7 @@ async function createEnrollment(form){
  const password=form.elements.installationPassword.value;
  const expiresMinutes=Number(form.elements.expiresMinutes.value);
  if(password.length<16||!/[A-Za-z]/.test(password)||!/[0-9]/.test(password)){feedback.textContent="Use pelo menos 16 caracteres, incluindo letras e números.";return}
- const base=String(cfg.apiBaseUrl||"").replace(/\\/+$/,"");
+ const base=String(cfg.apiBaseUrl||"").replace(/\/+$/,"");
  if(!base){feedback.textContent="A API central ainda não foi configurada. A senha não foi enviada.";return}
  button.disabled=true;feedback.textContent="Registrando a senha temporária...";
  try{
