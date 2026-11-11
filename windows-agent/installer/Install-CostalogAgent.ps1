@@ -18,7 +18,7 @@ if (-not (Test-Path (Join-Path $packageRoot "Costalog.Agent.Setup.exe"))) { thro
 if (-not (Test-Path (Join-Path $packageRoot "service\Costalog.Agent.Service.exe"))) { throw "Binário do serviço não encontrado em service\." }
 if (-not (Test-Path (Join-Path $packageRoot "desktop\Costalog.Agent.Desktop.exe"))) { throw "Binário WPF não encontrado em desktop\." }
 New-Item -ItemType Directory -Force -Path $programRoot, $privateRoot, $publicRoot | Out-Null
-Invoke-Icacls @($dataRoot, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F", "/T", "/C")
+Invoke-Icacls @($dataRoot, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F", "*S-1-5-32-545:RX", "/T", "/C")
 Invoke-Icacls @($privateRoot, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F", "/T", "/C")
 Invoke-Icacls @($publicRoot, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F", "*S-1-5-32-545:(OI)(CI)RX", "/T", "/C")
 Copy-Item -Path (Join-Path $packageRoot "service\*") -Destination $programRoot -Recurse -Force
