@@ -197,6 +197,14 @@ async function refreshRelease(){
  try{
   const r=await fetchJson(apiUrl("/admin/agent-release"));
   state.latestAgent=r.version||null;
+  const inst=$("#installerBox");
+  if(inst){
+   const i=r.installer;
+   const local=i&&/^http:\/\/(localhost|127\.)/i.test(i.apiBaseUrl||"");
+   inst.innerHTML=i
+    ?'<button class="btn btn-primary" data-action="download-installer" data-file="AGENTE-COSTALOG-instalador-'+esc(i.version)+'.zip">⇩ Baixar instalador (versão '+esc(i.version)+')</button><p class="cell-sub">'+(Number(i.size)/1048576).toFixed(1)+' MB · API: '+esc(i.apiBaseUrl||"não informada")+'</p>'+(local?'<p class="cell-sub" style="color:#96620d"><b>Atenção:</b> este instalador aponta para a API local (localhost) e só funciona neste computador. Para os outros PCs, a API precisa estar no servidor com endereço HTTPS.</p>':'')
+    :'<button class="btn btn-secondary" disabled>Nenhum instalador publicado</button><p class="cell-sub">Publique uma versão com o script Publish-AgentRelease.ps1.</p>';
+  }
   const box=$("#releaseInfo");
   if(box)box.innerHTML=r.version
    ?'Versão publicada: <b>'+esc(r.version)+'</b> · '+(Number(r.size)/1048576).toFixed(1)+' MB · publicada em '+esc(new Date(r.publishedAt).toLocaleString("pt-BR"))+'.<br>Os computadores com versão anterior se atualizam sozinhos em até ~5 minutos.'
@@ -342,14 +350,32 @@ async function refreshAudit(){
    '<section class="card data-card">'+cardHead("Linha do tempo","Os 200 eventos mais recentes")+eventsTable(list,true)+'</section>';
  }catch(e){box.innerHTML=failBox(e)}
 }function pageDownloads(){
- const downloadUrl=String(cfg.agentDownloadUrl||"");
- const hasDownload=downloadUrl.toLowerCase().startsWith("https://");
- const downloadAction=hasDownload?'<a class="btn btn-primary" href="'+esc(downloadUrl)+'" target="_blank" rel="noopener">Baixar pacote Windows</a>':'<button class="btn btn-secondary" disabled>Download será liberado após a publicação</button>';
- return head("IMPLANTAÇÃO","Download do agente","Baixe o pacote que será instalado nos computadores dos funcionários. A interface de gestão permanece somente no portal administrativo.",hasDownload?'<span class="status-pill pill-green">Pacote publicado</span>':'<span class="status-pill pill-amber">Aguardando configuração</span>')+
- '<div class="notice-box"><strong>Como será no computador do funcionário:</strong> somente o serviço Windows CostalogAgent será instalado e executado em segundo plano. Não haverá painel local, janela de monitoramento, ícone, atalho ou configurações para o funcionário alterar. A senha temporária e o perfil de proteção são definidos pela TI no portal.</div><br>'+
- '<div class="download-grid"><article class="card download-card"><div class="download-icon">▣</div><h3>AGENTE COSTALOG — Windows</h3><p>Pacote de implantação com serviço em segundo plano, assistente protegido e scripts de instalação e remoção autorizada.</p><div class="download-meta"><span>Windows 10/11 x64</span><span>Instalação administrativa</span></div>'+downloadAction+'</article></div><br>'+
- '<section class="card card-pad">'+cardHead("Pré-requisitos para liberar o download","Validação automática na publicação")+'<div class="detail-grid"><div class="detail-item"><span>01 · API</span><b>URL HTTPS da API e banco MariaDB operacionais</b></div><div class="detail-item"><span>02 · ASSINATURA</span><b>Chave privada protegida no servidor e chave pública no pacote</b></div><div class="detail-item"><span>03 · SENHA</span><b>Senha temporária criada pela TI, com uso único e expiração</b></div><div class="detail-item"><span>04 · HOMOLOGAÇÃO</span><b>Teste de instalação, telemetria, política e recuperação</b></div></div></section>'+
- '<br><section class="card card-pad">'+cardHead("Atualização automática","Versão distribuída automaticamente aos computadores já instalados")+'<div id="releaseInfo" class="cell-sub">Consultando...</div></section>';
+ return head("IMPLANTAÇÃO","Download do agente","Baixe o instalador e instale nos computadores dos funcionários. A gestão fica somente neste painel.")+
+ '<div class="notice-box"><strong>No computador do funcionário:</strong> é instalado somente o serviço Windows CostalogAgent, em segundo plano. Não há janela, ícone, atalho ou configuração que o funcionário possa alterar. Depois de instalado, o agente se atualiza sozinho.</div><br>'+
+ '<div class="download-grid"><article class="card download-card"><div class="download-icon">▣</div><h3>AGENTE COSTALOG — Windows</h3><p>Instalador completo: assistente, serviço, chave pública das políticas e endereço da API.</p><div class="download-meta"><span>Windows 10/11 x64</span><span>Executar como administrador</span></div><div id="installerBox"><button class="btn btn-secondary" disabled>Consultando...</button></div></article></div><br>'+
+ '<section class="card card-pad">'+cardHead("Como instalar","Passo a passo em cada computador")+'<div class="detail-grid">'+
+ '<div class="detail-item"><span>01 · BAIXAR</span><b>Clique em "Baixar instalador" e copie o arquivo .zip para o computador (pendrive ou pasta da rede).</b></div>'+
+ '<div class="detail-item"><span>02 · SENHA</span><b>Crie uma senha de instalação em <button class="action-link" data-nav="agent-settings">Configurações agente</button>. Cada senha vale para um computador.</b></div>'+
+ '<div class="detail-item"><span>03 · INSTALAR</span><b>No computador, extraia o .zip, dê dois cliques em INSTALAR.cmd, aceite o aviso de administrador e digite a senha.</b></div>'+
+ '<div class="detail-item"><span>04 · CONFERIR</span><b>Em cerca de 1 minuto o computador aparece em <button class="action-link" data-nav="devices">Computadores</button> com o próprio nome.</b></div>'+
+ '</div></section><br>'+
+ '<section class="card card-pad">'+cardHead("Atualização automática","Versão distribuída automaticamente aos computadores já instalados")+'<div id="releaseInfo" class="cell-sub">Consultando...</div></section>';
+}
+async function downloadInstaller(button){
+ const original=button.textContent;
+ button.disabled=true;button.textContent="Baixando...";
+ try{
+  const res=await fetch(apiUrl("/admin/agent-installer"),{headers:{Authorization:"Bearer "+state.token},credentials:"omit",cache:"no-store"});
+  if(!res.ok){const body=await res.json().catch(()=>({}));throw new Error(body.message||"Falha no download: HTTP "+res.status)}
+  const blob=await res.blob();
+  const link=document.createElement("a");
+  link.href=URL.createObjectURL(blob);
+  link.download=button.dataset.file||"AGENTE-COSTALOG-instalador.zip";
+  document.body.appendChild(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(link.href),10000);
+  toast("Instalador baixado.");
+ }catch(error){toast(error.message||"Falha no download.")}
+ finally{button.disabled=false;button.textContent=original}
 }
 function pageAgentSettings(){return head("CONTROLE DO SERVIÇO","Configurações agente","Gerencie parâmetros de instalação, acesso local de suporte, autorização de remoção e política antiviolação.",demoLabel)+
 '<div class="notice-box"><strong>Instalação dos funcionários:</strong> o computador recebe somente um serviço Windows em segundo plano, sem painel, ícone, atalho ou interface de gestão. A TI define o modo de proteção e cria uma senha temporária, de uso único e com validade limitada. O funcionário não escolhe as configurações.</div><br>'+
@@ -601,6 +627,8 @@ $("#viewRoot").addEventListener("click",e=>{
  if(e.target.closest('[data-action="refresh-health"]')){refreshHealth();return}
  if(e.target.closest('[data-action="refresh-certs"]')){refreshCerts();return}
  if(e.target.closest('[data-action="refresh-audit"]')){refreshAudit();return}
+ const dl=e.target.closest('[data-action="download-installer"]');
+ if(dl){downloadInstaller(dl);return}
  if(e.target.closest('[data-action="refresh-devices"]')){refreshDevices();return}
  if(e.target.closest('[data-action="refresh"]')){refreshDashboard();return}
 });

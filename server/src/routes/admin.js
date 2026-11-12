@@ -5,7 +5,7 @@ import {z} from "zod";
 import {query,transaction} from "../db.js";
 import {newToken,hashToken,signPolicy,signReleaseApproval} from "../security.js";
 import {requireAdmin,requireAdminWrite} from "../middleware.js";
-import {latestRelease} from "../agentReleases.js";
+import {latestRelease,latestInstaller} from "../agentReleases.js";
 import {certVisibleSql} from "../certFilter.js";
 
 const router=Router();
@@ -53,8 +53,16 @@ router.get("/dashboard",async(req,res,next)=>{try{
  }catch(e){next(e)}});
 
 router.get("/agent-release",async(req,res,next)=>{try{
- const r=await latestRelease();
- res.json(r?{version:r.version,size:r.size,sha256:r.sha256,publishedAt:r.publishedAt}:{version:null});
+ const [r,i]=await Promise.all([latestRelease(),latestInstaller()]);
+ res.json({...(r?{version:r.version,size:r.size,sha256:r.sha256,publishedAt:r.publishedAt}:{version:null}),installer:i?{version:i.version,size:i.size,publishedAt:i.publishedAt,apiBaseUrl:i.apiBaseUrl,fileName:i.fileName}:null});
+ }catch(e){next(e)}});
+
+router.get("/agent-installer",async(req,res,next)=>{try{
+ const i=await latestInstaller();
+ if(!i)return res.status(404).json({message:"Nenhum instalador publicado."});
+ await audit(null,"installer_downloaded","Instalador do agente baixado","Versão "+i.version,{adminId:req.admin.id,version:i.version});
+ res.set("Cache-Control","no-store");
+ res.download(i.file,i.fileName,err=>{if(err&&!res.headersSent)next(err)});
  }catch(e){next(e)}});
 
 router.get("/devices/:id",async(req,res,next)=>{try{

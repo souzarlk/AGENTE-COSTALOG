@@ -29,6 +29,22 @@ function sha256File(file){
  });
 }
 
+// Instalador completo (Setup + serviço + chave pública + configuração) gerado junto com a versão.
+export async function latestInstaller(){
+ let files;
+ try{files=await fs.promises.readdir(releasesDir())}catch{return null}
+ const found=files
+  .map(file=>{const m=/^costalog-installer-(\d+)\.(\d+)\.(\d+)\.zip$/.exec(file);return m?{file,version:`${Number(m[1])}.${Number(m[2])}.${Number(m[3])}`}:null})
+  .filter(Boolean)
+  .sort((a,b)=>compareVersions(b.version,a.version));
+ if(!found.length)return null;
+ const full=path.join(releasesDir(),found[0].file);
+ const stat=await fs.promises.stat(full);
+ let info={};
+ try{info=JSON.parse(await fs.promises.readFile(full.replace(/\.zip$/,".json"),"utf8"))}catch{}
+ return{version:found[0].version,file:full,fileName:found[0].file,size:stat.size,publishedAt:new Date(stat.mtimeMs).toISOString(),apiBaseUrl:info.apiBaseUrl||""};
+}
+
 export async function latestRelease(){
  let files;
  try{files=await fs.promises.readdir(releasesDir())}catch{return null}
