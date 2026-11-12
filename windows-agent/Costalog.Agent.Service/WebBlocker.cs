@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32;
 
@@ -25,6 +26,16 @@ public static class WebBlocker
 
     static string? _lastApplied;
 
+    // Avisa o Windows de que as políticas mudaram. Chrome, Edge e Brave escutam esse aviso
+    // e recarregam o URLBlocklist em segundos, sem precisar reiniciar o navegador.
+    [DllImport("userenv.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool RefreshPolicyEx(
+        [MarshalAs(UnmanagedType.Bool)] bool bMachine,
+        uint dwOptions);
+
+    const uint RP_FORCE = 1;
+
     public static WebBlockResult Apply(IEnumerable<string> hostnames)
     {
         var hosts = hostnames
@@ -39,14 +50,31 @@ public static class WebBlocker
         var errors = new List<string>();
         var changed = false;
 
+        var registryChanged = false;
+
         foreach (var key in ChromiumKeys)
         {
-            try { changed |= ApplyChromium(key, hosts); }
+            try { registryChanged |= ApplyChromium(key, hosts); }
             catch (Exception e) { errors.Add(key + ": " + e.Message); }
         }
 
-        try { changed |= ApplyFirefox(hosts); }
+        try { registryChanged |= ApplyFirefox(hosts); }
         catch (Exception e) { errors.Add("Firefox: " + e.Message); }
+
+        if (registryChanged)
+        {
+            changed = true;
+
+            try
+            {
+                if (!RefreshPolicyEx(true, RP_FORCE))
+                    errors.Add("Aviso de política: código " + Marshal.GetLastWin32Error());
+            }
+            catch (Exception e)
+            {
+                errors.Add("Aviso de política: " + e.Message);
+            }
+        }
 
         try { changed |= ApplyHostsFile(hosts); }
         catch (Exception e) { errors.Add("hosts: " + e.Message); }

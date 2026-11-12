@@ -4,7 +4,7 @@
 #requires -RunAsAdministrator
 param(
     [string]$PackageDirectory = (Join-Path ([Environment]::GetFolderPath("Desktop")) "AGENTE-COSTALOG-teste"),
-    [string]$AgentVersion = "0.2.0"
+    [string]$AgentVersion = "0.2.1"
 )
 $ErrorActionPreference = "Stop"
 try {
