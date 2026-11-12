@@ -362,20 +362,38 @@ async function loadBrowsing(deviceId,q){
    r.items.map(v=>'<tr'+(Number(v.blocked)?' class="row-blocked"':'')+'><td>'+esc(formatDeviceDate(v.occurredAt))+'</td><td><span class="cell-main">'+esc(v.hostname)+(Number(v.blocked)?' <span class="status-pill pill-red">'+(v.decision==="blocked"?"Tentativa bloqueada":"Site bloqueado")+'</span>':'')+'</span>'+(v.title&&v.decision!=="blocked"?'<span class="cell-sub">'+esc(v.title)+'</span>':'')+'</td><td><span class="cell-sub" title="'+esc(v.url)+'">'+esc(String(v.url||"").length>80?String(v.url).slice(0,80)+"…":v.url)+'</span></td><td>'+esc(v.browser)+'</td><td>'+esc(v.windowsUser)+'</td></tr>').join('')+
    '</tbody></table></div>'+(r.items.length>=300?'<p class="cell-sub" style="padding:8px 22px">Mostrando os 300 acessos mais recentes. Use a pesquisa para filtrar.</p>':''):'<div class="empty-state">Nenhum acesso encontrado no período.</div>');
  }catch(e){target.innerHTML=failBox(e)}
-}function pageAudit(){return head("CENTRO DE EVENTOS","Auditoria e alertas","Ações administrativas, alterações de política, eventos de segurança e alertas dos computadores.",'<button class="btn btn-secondary btn-small" data-action="refresh-audit">↻ Atualizar</button>')+'<div id="auditRoot"><div class="empty-state">Carregando...</div></div>'}
+}function pageAudit(){return head("CENTRO DE EVENTOS","Auditoria e alertas","Alertas e eventos separados por computador. As ações feitas no painel ficam em um grupo próprio.",'<button class="btn btn-secondary btn-small" data-action="refresh-audit">↻ Atualizar</button>')+
+ '<div class="toolbar"><select class="filter-select" id="auditSeverity"><option value="all">Todos os níveis</option><option value="warning">Críticos e atenção</option><option value="critical">Somente críticos</option></select><select class="filter-select" id="auditDays"><option value="1">Últimas 24 horas</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option></select></div>'+
+ '<div id="auditRoot"><div class="empty-state">Carregando...</div></div>'}
+function auditQuery(){return "days="+(state.auditDays||7)+"&severity="+(state.auditSeverity||"all")}
 async function refreshAudit(){
  const box=$("#auditRoot");if(!box)return;
+ const sev=$("#auditSeverity"),days=$("#auditDays");if(sev)sev.value=state.auditSeverity||"all";if(days)days.value=String(state.auditDays||7);
  try{
-  const r=await fetchJson(apiUrl("/admin/events?limit=200"));
+  const r=await fetchJson(apiUrl("/admin/events/summary?"+auditQuery()));
   if(state.view!=="audit")return;
-  const list=r.items||[],today=new Date().toDateString();
-  const todayCount=list.filter(e=>new Date(e.createdAt).toDateString()===today).length;
-  const blocked=list.filter(e=>e.eventType==="browser_navigation_blocked").length;
-  const integrity=list.filter(e=>e.eventType==="web_policy_restored"||e.eventType==="uninstall_requested").length;
-  const crit=list.filter(e=>e.severity==="critical").length;
-  box.innerHTML='<div class="metric-grid">'+metric("EVENTOS HOJE",String(todayCount),"Entre os 200 mais recentes","EV")+metric("BLOQUEIOS REGISTRADOS",String(blocked),"Navegação recusada","BL")+metric("INTEGRIDADE",String(integrity),"Bloqueio alterado ou pedido de remoção","IN")+metric("ALERTAS CRÍTICOS",String(crit),"Entre os 200 mais recentes","AL")+'</div>'+
-   '<section class="card data-card">'+cardHead("Linha do tempo","Os 200 eventos mais recentes")+eventsTable(list,true)+'</section>';
+  const withEvents=r.devices.filter(d=>Number(d.total)>0),without=r.devices.length-withEvents.length;
+  const crit=r.devices.reduce((a,d)=>a+Number(d.critical||0),0),warn=r.devices.reduce((a,d)=>a+Number(d.warning||0),0);
+  const group=(id,name,sub,d,extra)=>'<details class="cert-group audit-group'+(Number(d.openCritical)?' has-blocked':'')+'" data-device="'+esc(id)+'"><summary><span class="device-avatar">'+(id==="admin"?"TI":"PC")+'</span><span><span class="cell-main">'+esc(name)+'</span><span class="cell-sub">'+esc(sub||"")+'</span></span>'+
+   (Number(d.openCritical)?'<span class="status-pill pill-red">'+Number(d.openCritical)+' crítico(s) não lido(s)</span>':'')+(Number(d.critical)?'<span class="status-pill pill-red">'+Number(d.critical)+' crítico(s)</span>':'')+(Number(d.warning)?'<span class="status-pill pill-amber">'+Number(d.warning)+' atenção</span>':'')+'<span class="status-pill pill-gray">'+Number(d.total||0)+' evento(s)</span>'+(extra||'')+
+   '<span class="cell-sub">Último: '+esc(d.lastEvent?formatDeviceDate(d.lastEvent):"—")+'</span><span class="cert-chev">›</span></summary><div class="cert-group-body"><div class="audit-result" data-device="'+esc(id)+'"><div class="empty-state">Carregando...</div></div></div></details>';
+  box.innerHTML='<div class="metric-grid">'+metric("CRÍTICOS NÃO LIDOS",String(r.openCritical),"Aguardando a TI","!")+metric("CRÍTICOS NO PERÍODO",String(crit),"Em todos os computadores","AL")+metric("ATENÇÃO NO PERÍODO",String(warn),"Em todos os computadores","AT")+metric("COMPUTADORES COM EVENTOS",String(withEvents.length),"de "+r.devices.length+" cadastrados","PC")+'</div>'+
+   '<section class="card data-card">'+cardHead("Eventos por computador","Clique em um computador para ver a linha do tempo dele")+
+   (withEvents.length?withEvents.map(d=>group(d.deviceId,d.deviceName,d.username,d,d.status==="revoked"?'<span class="status-pill pill-gray">Removido</span>':'')).join(''):'<div class="empty-state">Nenhum evento de computador com estes filtros.</div>')+
+   (without?'<p class="cell-sub" style="padding:10px 22px">'+without+' computador(es) sem eventos com estes filtros.</p>':'')+'</section><br>'+
+   '<section class="card data-card">'+cardHead("Ações no painel","Alterações feitas pela TI: regras, políticas, senhas, downloads")+
+   (Number(r.admin.total)?group("admin","Painel / administração","Equipe de TI",r.admin):'<div class="empty-state">Nenhuma ação no período.</div>')+'</section>';
  }catch(e){box.innerHTML=failBox(e)}
+}
+async function loadAudit(deviceId){
+ const target=[...document.querySelectorAll(".audit-result")].find(x=>x.dataset.device===deviceId);
+ if(!target)return;
+ try{
+  const r=await fetchJson(apiUrl("/admin/events?deviceId="+encodeURIComponent(deviceId)+"&"+auditQuery()+"&limit=300"));
+  target.innerHTML=r.items.length?'<div class="table-wrap"><table><thead><tr><th>QUANDO</th><th>EVENTO</th><th>DETALHE</th><th>NÍVEL</th><th></th></tr></thead><tbody>'+
+   r.items.map(e=>'<tr'+(e.severity==="critical"&&!e.acknowledgedAt?' class="row-blocked"':'')+'><td>'+esc(formatDeviceDate(e.createdAt))+'</td><td class="cell-main">'+esc(e.title)+'</td><td>'+esc(e.message)+'</td><td>'+sevPill(e.severity)+'</td><td>'+(e.severity==="critical"&&e.deviceId?(e.acknowledgedAt?'<span class="cell-sub">Lido</span>':'<button class="action-link" data-ack-id="'+esc(e.id)+'" data-device="'+esc(deviceId)+'">Marcar como lido</button>'):'')+'</td></tr>').join('')+
+   '</tbody></table></div>'+(r.items.length>=300?'<p class="cell-sub" style="padding:8px 22px">Mostrando os 300 eventos mais recentes.</p>':''):'<div class="empty-state">Nenhum evento com estes filtros.</div>';
+ }catch(e){target.innerHTML=failBox(e)}
 }function pageDownloads(){
  return head("IMPLANTAÇÃO","Download do agente","Baixe o instalador e instale nos computadores dos funcionários. A gestão fica somente neste painel.")+
  '<div class="notice-box"><strong>No computador do funcionário:</strong> é instalado somente o serviço Windows CostalogAgent, em segundo plano. Não há janela, ícone, atalho ou configuração que o funcionário possa alterar. Depois de instalado, o agente se atualiza sozinho.</div><br>'+
@@ -582,10 +600,47 @@ async function adminLogin(username, password) {
   sessionStorage.setItem(tokenKey, data.token);
 }
 
+const baseTitle=document.title;
+async function checkAlerts(){
+ if(!state.token)return;
+ try{
+  const r=await fetchJson(apiUrl("/admin/alerts"));
+  state.alerts=r;
+  const n=r.open||0,b=$("#alertsBadge");
+  if(b){b.hidden=!n;b.textContent=n>99?"99+":String(n)}
+  document.title=(n?"("+n+") ":"")+baseTitle;
+  if(state.alertIds){const fresh=r.items.filter(a=>!state.alertIds.has(a.id));if(fresh.length)notifyAlerts(fresh)}
+  state.alertIds=new Set(r.items.map(a=>a.id));
+  const panel=$("#alertsPanel");if(panel&&!panel.hidden)renderAlertsPanel();
+ }catch{}
+}
+function notifyAlerts(list){
+ beep();
+ const a=list[0];
+ toast("Alerta crítico: "+a.title+" — "+a.deviceName);
+ if("Notification" in window&&Notification.permission==="granted"){
+  list.slice(0,3).forEach(x=>{try{const n=new Notification("AGENTE COSTALOG · "+x.deviceName,{body:x.title+(x.message?"\n"+x.message:""),tag:x.id,requireInteraction:true});n.onclick=()=>{window.focus();state.detailId=x.deviceId;navigate("device-detail");n.close()}}catch{}});
+ }
+}
+function beep(){try{const C=window.AudioContext||window.webkitAudioContext;const c=new C(),o=c.createOscillator(),g=c.createGain();o.frequency.value=880;g.gain.value=.08;o.connect(g);g.connect(c.destination);o.start();setTimeout(()=>{o.frequency.value=660},160);setTimeout(()=>{o.stop();c.close()},380)}catch{}}
+function renderAlertsPanel(){
+ const p=$("#alertsPanel");if(!p)return;
+ const r=state.alerts||{open:0,items:[]};
+ const perm="Notification" in window?Notification.permission:"unsupported";
+ p.innerHTML='<div class="alerts-head"><b>Alertas críticos</b><span class="cell-sub">'+r.open+' não lido(s)</span></div>'+
+  (perm==="default"?'<button class="alerts-perm" data-alert="perm">🔔 Ativar avisos na área de trabalho do Windows</button>':perm==="denied"?'<p class="cell-sub alerts-note">Os avisos do Windows estão bloqueados para este site no navegador. Libere em "Configurações do site" → Notificações.</p>':'')+
+  (r.items.length?r.items.map(a=>'<div class="alerts-item"><div><b>'+esc(a.title)+'</b><span class="cell-sub">'+esc(a.deviceName)+' · '+esc(formatDeviceDate(a.createdAt))+'</span>'+(a.message?'<span class="cell-sub">'+esc(a.message)+'</span>':'')+'</div><div class="alerts-actions"><button class="action-link" data-alert="open" data-device="'+esc(a.deviceId)+'">Ver computador</button><button class="action-link" data-alert="ack" data-id="'+esc(a.id)+'">Lido</button></div></div>').join(''):'<div class="empty-state">Nenhum alerta crítico pendente.</div>')+
+  '<div class="alerts-foot">'+(r.items.length?'<button class="action-link" data-alert="ackall">Marcar todos como lidos</button>':'<span></span>')+'<button class="action-link" data-alert="audit">Ver auditoria →</button></div>';
+}
+async function ackAlert(id){try{await fetchJson(apiUrl("/admin/alerts/"+encodeURIComponent(id)+"/ack"),{method:"POST"});await checkAlerts()}catch(e){toast(e.message||"Falha ao marcar como lido.")}}
 function openApp() {
   $("#authGate").hidden = true;
   $("#app").hidden = false;
   navigate("overview");
+  state.alertIds = null;
+  checkAlerts();
+  clearInterval(state.alertTimer);
+  state.alertTimer = setInterval(checkAlerts, 30000);
 }
 
 async function start() {
@@ -658,6 +713,8 @@ $("#logoutButton").addEventListener("click", async () => {
     // Encerra a sessão local mesmo se a API estiver indisponível.
   } finally {
     state.token = null;
+    clearInterval(state.alertTimer);
+    document.title = baseTitle;
     sessionStorage.removeItem(tokenKey);
     $("#app").hidden = true;
     $("#authGate").hidden = false;
@@ -679,6 +736,8 @@ $("#viewRoot").addEventListener("click",e=>{
  if(e.target.closest('[data-action="refresh-health"]')){refreshHealth();return}
  if(e.target.closest('[data-action="refresh-certs"]')){refreshCerts();return}
  if(e.target.closest('[data-action="refresh-audit"]')){refreshAudit();return}
+ const ack=e.target.closest("[data-ack-id]");
+ if(ack){(async()=>{await ackAlert(ack.dataset.ackId);loadAudit(ack.dataset.device)})();return}
  if(e.target.closest('[data-action="refresh-browsing"]')){refreshBrowsing();return}
  const dl=e.target.closest('[data-action="download-installer"]');
  if(dl){downloadInstaller(dl);return}
@@ -688,6 +747,7 @@ $("#viewRoot").addEventListener("click",e=>{
 $("#viewRoot").addEventListener("toggle",e=>{
  const g=e.target;
  if(g.classList&&g.classList.contains("browse-group")&&g.open)loadBrowsing(g.dataset.device,"");
+ if(g.classList&&g.classList.contains("audit-group")&&g.open)loadAudit(g.dataset.device);
 },true);
 $("#viewRoot").addEventListener("input",e=>{
  if(e.target.classList.contains("browse-search")){const id=e.target.dataset.device,v=e.target.value;clearTimeout(loadBrowsing.timer);loadBrowsing.timer=setTimeout(()=>loadBrowsing(id,v.trim()),350);return}
@@ -699,6 +759,8 @@ $("#viewRoot").addEventListener("input",e=>{
  }
 });
 $("#viewRoot").addEventListener("change",e=>{
+ if(e.target.id==="auditSeverity"){state.auditSeverity=e.target.value;refreshAudit();return}
+ if(e.target.id==="auditDays"){state.auditDays=Number(e.target.value)||7;refreshAudit();return}
  if(e.target.id==="browsingDays"){state.browsingDays=Number(e.target.value)||1;refreshBrowsing();return}
  if(e.target.id==="browsingOnlyBlocked"){state.browsingOnlyBlocked=e.target.checked;document.querySelectorAll(".browse-group[open]").forEach(g=>loadBrowsing(g.dataset.device,""));return}
  if(e.target.id==="deviceFilter"){
@@ -708,7 +770,22 @@ $("#viewRoot").addEventListener("change",e=>{
  }
 });$("#viewRoot").addEventListener("submit",e=>{if(e.target.id==="webRuleForm"){e.preventDefault();addRule(e.target,"web")}if(e.target.id==="certRuleForm"){e.preventDefault();addRule(e.target,"cert")}if(e.target.id==="enrollmentForm"){e.preventDefault();createEnrollment(e.target)}if(e.target.id==="uninstallPasswordForm"){e.preventDefault();saveUninstallPassword(e.target)}});
 $("#menuButton").addEventListener("click",()=>$("#sidebar").classList.toggle("open"));
-$("#alertsButton").addEventListener("click",()=>navigate("audit"));
+$("#alertsButton").addEventListener("click",e=>{
+ e.stopPropagation();
+ const p=$("#alertsPanel");p.hidden=!p.hidden;
+ if(!p.hidden){renderAlertsPanel();checkAlerts()}
+});
+$("#alertsPanel").addEventListener("click",async e=>{
+ e.stopPropagation();
+ const b=e.target.closest("[data-alert]");if(!b)return;
+ const act=b.dataset.alert;
+ if(act==="perm"){try{await Notification.requestPermission()}catch{}renderAlertsPanel();return}
+ if(act==="open"){$("#alertsPanel").hidden=true;state.detailId=b.dataset.device;navigate("device-detail");return}
+ if(act==="ack"){ackAlert(b.dataset.id);return}
+ if(act==="ackall"){try{await fetchJson(apiUrl("/admin/alerts/ack-all"),{method:"POST"});await checkAlerts();toast("Alertas marcados como lidos.")}catch(err){toast(err.message||"Falha.")}return}
+ if(act==="audit"){$("#alertsPanel").hidden=true;state.auditSeverity="critical";navigate("audit")}
+});
+document.addEventListener("click",()=>{const p=$("#alertsPanel");if(p)p.hidden=true});
 $("#environmentBadge").addEventListener("click",()=>toast(state.apiReady?"Conectado à API. Os indicadores vêm do banco de dados.":"API não conectada: nenhum dado real está sendo exibido."));
 start();
 })();

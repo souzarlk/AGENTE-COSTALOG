@@ -153,10 +153,59 @@ router.delete("/certificate-rules/:id",requireAdminWrite,async(req,res,next)=>{t
  res.json({ok:true,...await autoPublish(req.admin.id)});
  }catch(e){next(e)}});
 
+// Filtros comuns da auditoria: período (1, 7 ou 30 dias) e nível (all, warning = crítico+atenção, critical).
+function eventFilters(req){
+ const days=[1,7,30].includes(Number(req.query.days))?Number(req.query.days):7;
+ const level=["critical","warning"].includes(String(req.query.severity))?String(req.query.severity):"all";
+ const sevSql=level==="critical"?" AND e.severity='critical'":level==="warning"?" AND e.severity IN ('critical','warning')":"";
+ return{days,level,sevSql};
+}
+
+// Resumo da auditoria por computador (e um grupo para ações do painel).
+router.get("/events/summary",async(req,res,next)=>{try{
+ const f=eventFilters(req);
+ const [devices,admin,open]=await Promise.all([
+  query("SELECT d.id AS deviceId,d.device_name AS deviceName,d.windows_username AS username,d.status,COUNT(e.id) AS total,SUM(e.severity='critical') AS critical,SUM(e.severity='warning') AS warning,SUM(e.severity='critical' AND e.acknowledged_at IS NULL) AS openCritical,MAX(e.created_at) AS lastEvent FROM devices d LEFT JOIN device_events e ON e.device_id=d.id AND e.created_at>NOW(3)-INTERVAL ? DAY"+f.sevSql+" GROUP BY d.id,d.device_name,d.windows_username,d.status ORDER BY openCritical DESC,critical DESC,d.device_name",[f.days]),
+  query("SELECT COUNT(e.id) AS total,SUM(e.severity='critical') AS critical,SUM(e.severity='warning') AS warning,MAX(e.created_at) AS lastEvent FROM device_events e WHERE e.device_id IS NULL AND e.created_at>NOW(3)-INTERVAL ? DAY"+f.sevSql,[f.days]),
+  query("SELECT COUNT(*) AS total FROM device_events WHERE severity='critical' AND device_id IS NOT NULL AND acknowledged_at IS NULL")
+ ]);
+ res.json({days:f.days,severity:f.level,devices:devices.rows,admin:admin.rows[0],openCritical:Number(open.rows[0].total)});
+ }catch(e){next(e)}});
+
+// Eventos de um computador (deviceId) ou do painel (deviceId=admin).
 router.get("/events",async(req,res,next)=>{try{
- const limit=Math.min(200,Math.max(1,Number(req.query.limit)||50));
- const r=await query("SELECT e.id,e.device_id AS deviceId,d.device_name AS deviceName,e.event_type AS eventType,e.severity,e.title,e.message,e.details,e.created_at AS createdAt FROM device_events e LEFT JOIN devices d ON d.id=e.device_id ORDER BY e.created_at DESC LIMIT ?",[limit]);
+ const f=eventFilters(req);
+ const limit=Math.min(300,Math.max(1,Number(req.query.limit)||200));
+ const deviceId=String(req.query.deviceId||"");
+ const q=String(req.query.q||"").trim().slice(0,100);
+ const like="%"+q.replace(/[\\%_]/g,m=>"\\"+m)+"%";
+ let where=" WHERE e.created_at>NOW(3)-INTERVAL ? DAY"+f.sevSql;
+ const params=[f.days];
+ if(deviceId==="admin")where+=" AND e.device_id IS NULL";
+ else if(deviceId){where+=" AND e.device_id=?";params.push(deviceId)}
+ if(q){where+=" AND (e.title LIKE ? OR e.message LIKE ?)";params.push(like,like)}
+ params.push(limit);
+ const r=await query("SELECT e.id,e.device_id AS deviceId,d.device_name AS deviceName,e.event_type AS eventType,e.severity,e.title,e.message,e.details,e.created_at AS createdAt,e.acknowledged_at AS acknowledgedAt FROM device_events e LEFT JOIN devices d ON d.id=e.device_id"+where+" ORDER BY e.created_at DESC LIMIT ?",params);
  res.json({items:r.rows});
+ }catch(e){next(e)}});
+
+// Alertas críticos não lidos (sino de notificações do painel).
+router.get("/alerts",async(req,res,next)=>{try{
+ const [items,count]=await Promise.all([
+  query("SELECT e.id,e.device_id AS deviceId,d.device_name AS deviceName,e.event_type AS eventType,e.title,e.message,e.created_at AS createdAt FROM device_events e JOIN devices d ON d.id=e.device_id WHERE e.severity='critical' AND e.acknowledged_at IS NULL ORDER BY e.created_at DESC LIMIT 30"),
+  query("SELECT COUNT(*) AS total FROM device_events WHERE severity='critical' AND device_id IS NOT NULL AND acknowledged_at IS NULL")
+ ]);
+ res.json({open:Number(count.rows[0].total),items:items.rows});
+ }catch(e){next(e)}});
+
+router.post("/alerts/ack-all",requireAdminWrite,async(req,res,next)=>{try{
+ const r=await query("UPDATE device_events SET acknowledged_at=NOW(3),acknowledged_by=? WHERE severity='critical' AND device_id IS NOT NULL AND acknowledged_at IS NULL",[req.admin.id]);
+ res.json({ok:true,acknowledged:r.rowCount});
+ }catch(e){next(e)}});
+
+router.post("/alerts/:id/ack",requireAdminWrite,async(req,res,next)=>{try{
+ const r=await query("UPDATE device_events SET acknowledged_at=NOW(3),acknowledged_by=? WHERE id=? AND acknowledged_at IS NULL",[req.admin.id,req.params.id]);
+ res.json({ok:true,acknowledged:r.rowCount});
  }catch(e){next(e)}});
 
 // Resumo de navegação por computador no período (1, 7 ou 30 dias).

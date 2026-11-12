@@ -7,7 +7,7 @@
 <meta name="description" content="Central de segurança e monitoramento de endpoints da COSTALOG.">
 <title>AGENTE COSTALOG | Central de Segurança</title>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/css/app.css?v=4">
+<link rel="stylesheet" href="assets/css/app.css?v=5">
 </head>
 <body>
 <div id="authGate" class="auth-gate">
@@ -68,7 +68,7 @@
       </div>
       <div class="topbar-right">
         <div class="environment-badge" id="environmentBadge"><span></span> DEMONSTRAÇÃO · API NÃO CONECTADA</div>
-        <button class="icon-button" id="alertsButton" title="Alertas">♢<i></i></button>
+        <button class="icon-button" id="alertsButton" title="Alertas críticos">♢<i id="alertsBadge" hidden></i></button><div class="alerts-panel" id="alertsPanel" hidden></div>
         <div class="user-chip"><div class="avatar">TI</div><div><b>Equipe de TI</b><small>Administrador</small></div></div>
       </div>
     </header>
@@ -83,6 +83,6 @@
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script src="assets/js/config.js?v=2"></script>
-<script src="assets/js/app.js?v=12"></script>
+<script src="assets/js/app.js?v=13"></script>
 </body>
 </html>
