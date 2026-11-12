@@ -52,7 +52,7 @@ public sealed class AgentWorker : BackgroundService
                 await Heartbeat(cfg, stop);
                 await SendTelemetry(cfg, stop);
 
-                if (DateTimeOffset.UtcNow - _lastCertUpload > TimeSpan.FromHours(12))
+                if (DateTimeOffset.UtcNow - _lastCertUpload > TimeSpan.FromHours(1))
                 {
                     await SendCertificates(cfg, stop);
                     _lastCertUpload = DateTimeOffset.UtcNow;
@@ -1212,67 +1212,68 @@ public sealed class AgentWorker : BackgroundService
         return list.ToArray();
     }
 
+    // Certificados do computador (LocalMachine\My) e de cada usuário com sessão aberta.
+    // O serviço roda como SYSTEM, então o "CurrentUser" dele não é o do funcionário:
+    // os certificados dos usuários são lidos do perfil de cada um (HKEY_USERS).
     static object[] ReadCertificates()
     {
         var list = new List<object>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var location in new[]
-        {
-            StoreLocation.LocalMachine,
-            StoreLocation.CurrentUser
-        })
+        void Add(X509Certificate2 cert, string storeName, bool hasPrivateKey)
         {
             try
             {
-                using var store = new X509Store(
-                    StoreName.My,
-                    location
-                );
+                var thumb = cert.Thumbprint ?? "";
 
-                store.Open(
-                    OpenFlags.ReadOnly |
-                    OpenFlags.OpenExistingOnly
-                );
+                if (!seen.Add(thumb + "|" + storeName) || list.Count >= 2000)
+                    return;
 
-                foreach (var cert in store.Certificates)
+                list.Add(new
                 {
-                    try
-                    {
-                        var thumb = cert.Thumbprint ?? "";
-                        var sha = Convert.ToHexString(
-                            SHA256.HashData(cert.RawData)
-                        );
-
-                        list.Add(new
-                        {
-                            subjectName = cert.Subject,
-                            issuerName = cert.Issuer,
-                            serialNumber = cert.SerialNumber,
-                            thumbprintSha1 = thumb,
-                            thumbprintSha256 = sha,
-                            notBefore = new DateTimeOffset(
-                                cert.NotBefore.ToUniversalTime()
-                            ).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
-                            notAfter = new DateTimeOffset(
-                                cert.NotAfter.ToUniversalTime()
-                            ).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
-                            storeName = location + "\\My",
-                            hasPrivateKey = cert.HasPrivateKey
-                        });
-                    }
-                    catch
-                    {
-                    }
-
-                    if (list.Count >= 2000)
-                        break;
-                }
+                    subjectName = Trim(cert.Subject, 512),
+                    issuerName = Trim(cert.Issuer, 512),
+                    serialNumber = Trim(cert.SerialNumber, 160),
+                    thumbprintSha1 = thumb,
+                    thumbprintSha256 = Convert.ToHexString(SHA256.HashData(cert.RawData)),
+                    notBefore = cert.NotBefore.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+                    notAfter = cert.NotAfter.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+                    storeName = Trim(storeName, 100),
+                    hasPrivateKey
+                });
             }
             catch
             {
             }
         }
 
+        try
+        {
+            using var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+            store.Open(OpenFlags.ReadOnly | OpenFlags.OpenExistingOnly);
+
+            foreach (var cert in store.Certificates)
+            {
+                using (cert)
+                    Add(cert, "Computador", cert.HasPrivateKey);
+            }
+        }
+        catch
+        {
+        }
+
+        foreach (var userCert in UserCertificateReader.Read())
+        {
+            using (userCert.Certificate)
+                Add(userCert.Certificate, "Usuário " + userCert.Owner, userCert.HasPrivateKey);
+        }
+
         return list.ToArray();
+    }
+
+    static string Trim(string? value, int max)
+    {
+        value ??= "";
+        return value.Length > max ? value[..max] : value;
     }
 }

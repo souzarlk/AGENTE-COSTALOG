@@ -68,7 +68,7 @@ router.post("/certificates",async(req,res,next)=>{try{
  const list=z.array(z.object({subjectName:z.string().max(512).default(""),issuerName:z.string().max(512).default(""),serialNumber:z.string().max(160).default(""),thumbprintSha1:z.string().max(40).default(""),thumbprintSha256:z.string().max(64).default(""),notBefore:z.string().datetime().nullable().optional(),notAfter:z.string().datetime().nullable().optional(),storeName:z.string().max(100).default(""),hasPrivateKey:z.boolean().default(false)}).strict()).max(2000).parse(req.body.certificates);
  await transaction(async tx=>{
   await tx.query("DELETE FROM installed_certificates WHERE device_id=?",[req.device.id]);
-  for(const c of list)await tx.query("INSERT INTO installed_certificates(id,device_id,subject_name,issuer_name,serial_number,thumbprint_sha1,thumbprint_sha256,not_before,not_after,store_name,has_private_key,observed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,NOW(3))",[uuid(),req.device.id,c.subjectName,c.issuerName,c.serialNumber,c.thumbprintSha1,c.thumbprintSha256,c.notBefore||null,c.notAfter||null,c.storeName,c.hasPrivateKey]);
+  for(const c of list)await tx.query("INSERT IGNORE INTO installed_certificates(id,device_id,subject_name,issuer_name,serial_number,thumbprint_sha1,thumbprint_sha256,not_before,not_after,store_name,has_private_key,observed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,NOW(3))",[uuid(),req.device.id,c.subjectName,c.issuerName,c.serialNumber,c.thumbprintSha1,c.thumbprintSha256,c.notBefore||null,c.notAfter||null,c.storeName,c.hasPrivateKey]);
  });
  res.status(202).json({accepted:true,certificates:list.length,notice:"Somente metadados públicos recebidos; nenhuma chave privada foi transferida."});
  }catch(e){next(e)}});
