@@ -5,6 +5,7 @@ import {query,transaction} from "../db.js";
 import {newToken,hashToken,signPolicy} from "../security.js";
 import {requireDevice} from "../middleware.js";
 import {latestRelease,compareVersions} from "../agentReleases.js";
+import {certIgnored} from "../certFilter.js";
 const router=Router(),uuid=()=>crypto.randomUUID();
 const enrollment=z.object({enrollmentToken:z.string().min(8).max(200),deviceName:z.string().trim().min(1).max(120),windowsUsername:z.string().max(120).default(""),domainName:z.string().max(160).default(""),osCaption:z.string().max(160).default(""),osVersion:z.string().max(80).default(""),osBuild:z.string().max(80).default(""),manufacturer:z.string().max(120).default(""),model:z.string().max(160).default(""),cpuName:z.string().max(180).default(""),ramTotalBytes:z.number().int().min(0).default(0),agentVersion:z.string().max(40).default(""),installMode:z.enum(["certificate","certificate-and-web"]),bootAt:z.string().datetime().optional()}).strict();
 router.post("/enroll",async(req,res,next)=>{try{
@@ -65,7 +66,8 @@ router.post("/telemetry",async(req,res,next)=>{try{
  res.status(202).json({accepted:true,disks:x.disks.length});
  }catch(e){next(e)}});
 router.post("/certificates",async(req,res,next)=>{try{
- const list=z.array(z.object({subjectName:z.string().max(512).default(""),issuerName:z.string().max(512).default(""),serialNumber:z.string().max(160).default(""),thumbprintSha1:z.string().max(40).default(""),thumbprintSha256:z.string().max(64).default(""),notBefore:z.string().datetime().nullable().optional(),notAfter:z.string().datetime().nullable().optional(),storeName:z.string().max(100).default(""),hasPrivateKey:z.boolean().default(false)}).strict()).max(2000).parse(req.body.certificates);
+ const received=z.array(z.object({subjectName:z.string().max(512).default(""),issuerName:z.string().max(512).default(""),serialNumber:z.string().max(160).default(""),thumbprintSha1:z.string().max(40).default(""),thumbprintSha256:z.string().max(64).default(""),notBefore:z.string().datetime().nullable().optional(),notAfter:z.string().datetime().nullable().optional(),storeName:z.string().max(100).default(""),hasPrivateKey:z.boolean().default(false)}).strict()).max(2000).parse(req.body.certificates);
+ const list=received.filter(c=>!certIgnored(c));
  await transaction(async tx=>{
   await tx.query("DELETE FROM installed_certificates WHERE device_id=?",[req.device.id]);
   for(const c of list)await tx.query("INSERT IGNORE INTO installed_certificates(id,device_id,subject_name,issuer_name,serial_number,thumbprint_sha1,thumbprint_sha256,not_before,not_after,store_name,has_private_key,observed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,NOW(3))",[uuid(),req.device.id,c.subjectName,c.issuerName,c.serialNumber,c.thumbprintSha1,c.thumbprintSha256,c.notBefore||null,c.notAfter||null,c.storeName,c.hasPrivateKey]);

@@ -6,6 +6,7 @@ import {query,transaction} from "../db.js";
 import {newToken,hashToken,signPolicy,signReleaseApproval} from "../security.js";
 import {requireAdmin,requireAdminWrite} from "../middleware.js";
 import {latestRelease} from "../agentReleases.js";
+import {certVisibleSql} from "../certFilter.js";
 
 const router=Router();
 router.use(requireAdmin);
@@ -46,7 +47,7 @@ router.get("/dashboard",async(req,res,next)=>{try{
   query("SELECT COUNT(*) total,SUM(status='active') active,SUM(last_seen_at>=TIMESTAMPADD(MINUTE,-5,NOW(3))) online FROM devices"),
   query("SELECT COUNT(*) total FROM device_events WHERE created_at>=CURDATE()"),
   query("SELECT COUNT(*) total FROM browsing_events WHERE occurred_at>=CURDATE() AND decision='blocked'"),
-  query("SELECT COUNT(*) total FROM installed_certificates WHERE not_after<=TIMESTAMPADD(DAY,30,NOW(3))")
+  query("SELECT COUNT(*) total FROM installed_certificates WHERE not_after<=TIMESTAMPADD(DAY,30,NOW(3)) AND "+certVisibleSql(""))
  ]);
  res.json({devices:d.rows[0],eventsToday:e.rows[0].total,blockedToday:b.rows[0].total,certificatesExpiring:c.rows[0].total,mode:"live"});
  }catch(e){next(e)}});
@@ -63,7 +64,7 @@ router.get("/devices/:id",async(req,res,next)=>{try{
  const [t,disks,certs,events]=await Promise.all([
   query("SELECT cpu_percent AS cpuPercent,memory_used_bytes AS memoryUsedBytes,memory_total_bytes AS memoryTotalBytes,uptime_seconds AS uptimeSeconds,network,collected_at AS collectedAt FROM telemetry_snapshots WHERE device_id=? ORDER BY collected_at DESC LIMIT 1",[id]),
   query("SELECT drive_letter AS driveLetter,volume_label AS volumeLabel,filesystem,media_type AS mediaType,disk_model AS diskModel,total_bytes AS totalBytes,free_bytes AS freeBytes,used_percent AS usedPercent,smart_health AS smartHealth,temperature_c AS temperatureC,wear_percent AS wearPercent,collected_at AS collectedAt FROM device_disks WHERE device_id=? ORDER BY drive_letter",[id]),
-  query("SELECT subject_name AS subjectName,issuer_name AS issuerName,serial_number AS serialNumber,thumbprint_sha1 AS thumbprintSha1,not_before AS notBefore,not_after AS notAfter,store_name AS storeName,has_private_key AS hasPrivateKey FROM installed_certificates WHERE device_id=? ORDER BY not_after",[id]),
+  query("SELECT subject_name AS subjectName,issuer_name AS issuerName,serial_number AS serialNumber,thumbprint_sha1 AS thumbprintSha1,not_before AS notBefore,not_after AS notAfter,store_name AS storeName,has_private_key AS hasPrivateKey FROM installed_certificates WHERE device_id=? AND "+certVisibleSql("")+" ORDER BY not_after",[id]),
   query("SELECT event_type AS eventType,severity,title,message,created_at AS createdAt FROM device_events WHERE device_id=? ORDER BY created_at DESC LIMIT 40",[id])
  ]);
  res.json({device:d.rows[0],telemetry:t.rows[0]||null,disks:disks.rows,certificates:certs.rows,events:events.rows});
@@ -156,7 +157,7 @@ router.get("/browsing-events",async(req,res,next)=>{try{
  }catch(e){next(e)}});
 
 router.get("/certificates",async(req,res,next)=>{try{
- const r=await query("SELECT c.id,c.subject_name AS subjectName,c.issuer_name AS issuerName,c.serial_number AS serialNumber,c.thumbprint_sha1 AS thumbprintSha1,c.thumbprint_sha256 AS thumbprintSha256,c.not_before AS notBefore,c.not_after AS notAfter,c.store_name AS storeName,c.has_private_key AS hasPrivateKey,c.observed_at AS observedAt,c.device_id AS deviceId,d.device_name AS deviceName,d.windows_username AS username FROM installed_certificates c JOIN devices d ON d.id=c.device_id ORDER BY d.device_name,c.not_after");
+ const r=await query("SELECT c.id,c.subject_name AS subjectName,c.issuer_name AS issuerName,c.serial_number AS serialNumber,c.thumbprint_sha1 AS thumbprintSha1,c.thumbprint_sha256 AS thumbprintSha256,c.not_before AS notBefore,c.not_after AS notAfter,c.store_name AS storeName,c.has_private_key AS hasPrivateKey,c.observed_at AS observedAt,c.device_id AS deviceId,d.device_name AS deviceName,d.windows_username AS username FROM installed_certificates c JOIN devices d ON d.id=c.device_id WHERE "+certVisibleSql("c")+" ORDER BY d.device_name,c.not_after");
  res.json({items:r.rows});
  }catch(e){next(e)}});
 
