@@ -1,0 +1,27 @@
+# Dependências e builds
+node_modules/
+bin/
+obj/
+artifacts/
+
+# Segredos — nunca enviar ao GitHub
+.env
+.env.*
+!.env.example
+server/keygen-temp/
+*.pfx
+*.p12
+*.key
+*private*.pem
+*private*.xml
+
+# Backups locais criados durante as correções
+*.backup*
+*.before-*
+*.bak
+
+# Sistema e editor
+.vs/
+.vscode/
+Thumbs.db
+desktop.ini

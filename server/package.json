@@ -1,23 +1,27 @@
+
 {
-  "name":"agente-costalog-api",
-  "version":"0.1.0",
-  "private":true,
-  "type":"module",
-  "engines":{"node":">=20"},
-  "scripts":{
-    "start":"node src/server.js",
-    "dev":"node --watch src/server.js",
-    "db:migrate":"node scripts/migrate.js",
-    "check":"node --check src/server.js && node --check src/security.js && node --check src/db.js && node --check src/routes/admin.js && node --check src/routes/device.js",
-    "test":"node --test"
+  "name": "agente-costalog-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
   },
-  "dependencies":{
-    "cors":"^2.8.5",
-    "dotenv":"^16.4.7",
-    "express":"^4.21.2",
-    "express-rate-limit":"^7.5.0",
-    "helmet":"^8.0.0",
-    "mysql2":"^3.15.3",
-    "zod":"^4.6.7"
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "db:migrate": "node scripts/migrate.js",
+    "admin:create": "node scripts/create-admin.js",
+    "check": "node --check src/server.js && node --check src/security.js && node --check src/db.js && node --check src/middleware.js && node --check src/routes/auth.js && node --check src/routes/admin.js && node --check src/routes/device.js && node --check scripts/create-admin.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "mysql2": "^3.15.3",
+    "zod": "^4.6.7"
   }
 }

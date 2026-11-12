@@ -1,11 +1,16 @@
-window.COSTALOG_AGENT_CONFIG=Object.freeze({
-  identityBaseUrl:"https://central-notas-fiscais-costalog-api.onrender.com",
-  identityLoginPath:"/api/auth/login",
-  identityMePath:"/api/auth/me",
-  apiBaseUrl:"",
-  agentDownloadUrl:"",
-  apiPrefix:"/api/v1",
-  requestTimeoutMs:12000,
-  authMode:"central-notas-fiscais",
-  demoMode:true
+
+window.COSTALOG_AGENT_CONFIG = Object.freeze({
+  apiBaseUrl: "http://localhost:8080",
+  apiPrefix: "/api/v1",
+
+  adminLoginPath: "/auth/login",
+  adminMePath: "/admin/me",
+  adminLogoutPath: "/auth/logout",
+
+  agentDownloadUrl: "",
+
+  requestTimeoutMs: 12000,
+
+  authMode: "standalone",
+  demoMode: false
 });

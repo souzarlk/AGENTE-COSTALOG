@@ -1,9 +1,10 @@
 (()=>{
 "use strict";
 const cfg=window.COSTALOG_AGENT_CONFIG||{},$=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
-const tokenKey="costalog_admin_token",demoKey="costalog_agent_demo_v1";
+const tokenKey="costalog_admin_token";
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const state={view:"overview",token:null,apiReady:false,demo:true,rules:[],certRules:[],events:[],deviceFilter:"all",query:"",pendingRelease:[]};
+const state={view:"overview",token:null,apiReady:false,demo:true,rules:[],certRules:[],events:[],devices:[],devicesError:"",deviceQuery:"",deviceFilter:"all",query:"",pendingRelease:[]};
+const demoLabel = '<span class="status-pill pill-amber">PRÉVIA ILUSTRATIVA</span>';
 const demo={
  devices:[
  {id:"pc-01",name:"CST-FROTA-014",user:"frota.014",model:"Dell OptiPlex 7010",os:"Windows 11 Pro 23H2",ram:"16 GB",cpu:"Intel Core i5-13500",disk:"512 GB SSD",used:62,uptime:"2d 04h",boot:"09/11/2026 07:42",ip:"10.20.1.114",status:"Online",last:"há 2 min",mode:"Proteção A",office:"OK",ssd:"98%",usb:"Bloqueado",agent:"Protegido"},
@@ -54,8 +55,6 @@ const demo={
  {id:3,name:"Assinador corporativo",host:"assinador.costalog.local",scope:"Certificados autorizados",enabled:true}
  ]
 };
-function loadDemo(){try{const v=JSON.parse(localStorage.getItem(demoKey)||"{}");state.rules=Array.isArray(v.rules)?v.rules:demo.rules;state.certRules=Array.isArray(v.certRules)?v.certRules:demo.certRules;}catch{state.rules=demo.rules;state.certRules=demo.certRules}}
-function saveDemo(){try{localStorage.setItem(demoKey,JSON.stringify({rules:state.rules,certRules:state.certRules}))}catch{}}
 const titles={"overview":"Visão geral","web-blocking":"Bloqueio de sites","certificate-rules":"Sites para certificados","devices":"Computadores","health":"Saúde dos computadores","installed-certs":"Certificados na máquina","browsing":"Atividade de navegação","audit":"Auditoria e alertas","downloads":"Download do agente","agent-settings":"Configurações agente","settings":"Configurações gerais"};
 function toast(m){const el=$("#toast");el.textContent=m;el.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove("show"),3000)}
 function pill(s){const c=["Online","Permitido","Válido","Ativo","Protegido","Conectado"].includes(s)?"pill-green":["Atenção","Vencendo","Aviso","Aguardando conexão"].includes(s)?"pill-amber":["Bloqueado","Expirado","Crítico","Offline","Falha detectada","Sem comunicação"].includes(s)?"pill-red":"pill-gray";return '<span class="status-pill '+c+'">'+esc(s)+'</span>'}
@@ -63,46 +62,212 @@ function head(k,t,d,a=""){return '<div class="page-heading"><div><div class="eye
 function cardHead(t,s="",r=""){return '<div class="card-heading"><div><h3>'+t+'</h3>'+(s?'<p>'+s+'</p>':'')+'</div>'+(r||'')+'</div>'}
 function metric(l,v,f,i){return '<article class="card metric-card"><div class="metric-top"><span class="metric-label">'+l+'</span><span class="metric-icon">'+i+'</span></div><div class="metric-value">'+v+'</div><div class="metric-foot">'+f+'</div></article>'}
 function eventRows(items){return '<div class="event-list">'+items.map(e=>'<div class="event-row"><span class="event-mark '+e.kind+'">'+e.icon+'</span><div><b>'+esc(e.title)+'</b><p>'+esc(e.desc)+'</p></div><span class="event-time">'+esc(e.time)+'</span></div>').join('')+'</div>'}
-function pageOverview(){return head("CENTRAL DE SEGURANÇA","Proteção da frota em um só lugar","Visibilidade operacional dos computadores, políticas de navegação, certificados detectados e eventos de segurança.",'<button class="btn btn-secondary btn-small" data-action="refresh">↻ Atualizar painel</button><button class="btn btn-primary btn-small" data-nav="downloads">⇩ Instalar agente</button>')+
-'<div class="metric-grid">'+metric("DISPOSITIVOS CADASTRADOS","12","<strong>10 ativos</strong> · 2 sem comunicação","▣")+metric("COMPUTADORES ONLINE","9","<strong>75%</strong> da frota monitorada","⌁")+metric("BLOQUEIOS HOJE","28","<strong>+6</strong> desde o último turno","⊘")+metric("ALERTAS EM ABERTO","3","<strong>2 críticos</strong> exigem análise","♢")+'</div>'+
-'<div class="split-grid"><section class="card card-pad">'+cardHead("Postura de segurança","Indicadores de política e sincronização",'<span class="status-pill pill-amber">Prévia ilustrativa</span>')+
-'<div class="health-summary"><div class="health-tile"><span>POLÍTICA APLICADA</span><strong>83%</strong><small>10 de 12 computadores</small></div><div class="health-tile"><span>PROTEÇÃO NAVEGADOR</span><strong>9/12</strong><small>Chrome / Edge</small></div><div class="health-tile"><span>AGENTES ATUALIZADOS</span><strong>10/12</strong><small>Versão 0.1.x</small></div></div>'+
-'<div style="margin-top:20px">'+cardHead("Cobertura de monitoramento","Indicadores ilustrativos")+
-'<div class="storage-row"><label>Inventário do PC</label><div class="progress"><span style="width:85%"></span></div><strong>85%</strong></div><div class="storage-row"><label>Regras web</label><div class="progress"><span style="width:75%"></span></div><strong>75%</strong></div><div class="storage-row"><label>Telemetria</label><div class="progress"><span style="width:68%"></span></div><strong>68%</strong></div></div></section>'+
-'<section class="card card-pad">'+cardHead("Eventos recentes","Últimas atividades recebidas",'<button class="action-link" data-nav="audit">Ver auditoria →</button>')+eventRows(demo.events.slice(0,4))+'</section></div>'+
-'<section class="card data-card">'+cardHead("Computadores que exigem atenção","Amostra ilustrativa",'<button class="action-link" data-nav="devices">Ver todos →</button>')+'<div class="table-wrap"><table><thead><tr><th>DISPOSITIVO</th><th>USUÁRIO</th><th>STATUS</th><th>ARMAZENAMENTO</th><th>ÚLTIMA COMUNICAÇÃO</th><th>MODO</th></tr></thead><tbody>'+demo.devices.slice(0,4).map(d=>'<tr><td><span class="cell-main">'+esc(d.name)+'</span><span class="cell-sub">'+esc(d.model)+'</span></td><td>'+esc(d.user)+'</td><td>'+pill(d.status)+'</td><td>'+d.used+'%</td><td>'+esc(d.last)+'</td><td>'+esc(d.mode)+'</td></tr>').join('')+'</tbody></table></div></section>'}
-function ruleList(list,kind){return '<div class="table-wrap"><table><thead><tr><th>NOME DA REGRA</th><th>DOMÍNIO</th><th>APLICAÇÃO</th><th>STATUS</th><th>CONTROLE</th></tr></thead><tbody>'+list.map(r=>'<tr><td><span class="cell-main">'+esc(r.name)+'</span><span class="cell-sub">'+esc(r.kind||"Regra de domínio")+'</span></td><td>'+esc(r.host)+'</td><td>'+esc(r.scope)+'</td><td>'+pill(r.enabled?"Ativo":"Desativado")+'</td><td><button class="action-link" data-toggle-rule="'+kind+'" data-id="'+r.id+'">'+(r.enabled?"Desativar":"Ativar")+'</button> <button class="action-link danger" data-delete-rule="'+kind+'" data-id="'+r.id+'">Remover</button></td></tr>').join('')+'</tbody></table></div>'}
-function pageWeb(){return head("POLÍTICAS DE NAVEGAÇÃO","Bloqueio de sites","Crie regras por domínio, grupo de computadores ou dispositivo. A implementação real dependerá da extensão gerenciada e de política de rede.",demoLabel)+
-'<div class="rule-info"><strong>Negar por padrão ou lista de bloqueio:</strong> defina o perfil corporativo em Configurações gerais. Regras de exceção sempre precisam de aprovação da TI. Nesta prévia os registros são locais e não bloqueiam a navegação.</div>'+
+function pageOverview(){
+ const d=state.dashboard;
+ const devices=d?.devices||{};
+ const count=v=>Number(v||0).toLocaleString("pt-BR");
+ const error=state.dashboardError;
+ return head("CENTRAL DE SEGURANÇA","Proteção da frota em um só lugar","Indicadores consultados diretamente no servidor.",'<button class="btn btn-secondary btn-small" data-action="refresh">↻ Atualizar painel</button><button class="btn btn-primary btn-small" data-nav="downloads">⇧ Instalar agente</button>')+
+ (error?'<div class="rule-info"><strong>Falha ao consultar o servidor:</strong> '+esc(error)+'</div>':'')+
+ '<div class="metric-grid">'+
+ metric("DISPOSITIVOS CADASTRADOS",d?count(devices.total):"--",d?"Total registrado no servidor":"Aguardando consulta","PC")+
+ metric("DISPOSITIVOS ATIVOS",d?count(devices.active):"--",d?"Com status ativo":"Aguardando consulta","AT")+
+ metric("COMPUTADORES ONLINE",d?count(devices.online):"--",d?"Comunicação nos últimos 5 minutos":"Aguardando consulta","ON")+
+ metric("EVENTOS HOJE",d?count(d.eventsToday):"--",d?"Eventos registrados hoje":"Aguardando consulta","EV")+
+ metric("BLOQUEIOS HOJE",d?count(d.blockedToday):"--",d?"Navegações bloqueadas hoje":"Aguardando consulta","BL")+
+ metric("CERTIFICADOS A VENCER",d?count(d.certificatesExpiring):"--",d?"Vencimento nos próximos 30 dias":"Aguardando consulta","CE")+
+ '</div>'+
+ '<section class="card card-pad">'+cardHead("Estado da conexão","Dados recebidos da API administrativa")+
+ (d?'<p>Consulta realizada com sucesso. Indicadores provenientes do banco de dados.</p>':'<p>Aguardando os dados reais do servidor. Utilize Atualizar painel para tentar novamente.</p>')+
+ '</section>';
+}
+async function refreshDashboard(){
+ state.dashboardError="";
+ try{
+  const base=String(cfg.apiBaseUrl||"").replace(/\/+$/,"");
+  if(!base) throw new Error("API não configurada.");
+  const result=await fetchJson(base+(cfg.apiPrefix||"/api/v1")+"/admin/dashboard");
+  if(result.mode!=="live"||!result.devices) throw new Error("A API não retornou os indicadores esperados.");
+  state.dashboard=result;
+  state.apiReady=true;
+  setEnvironment(true);
+ }catch(error){
+  state.dashboard=null;
+  state.apiReady=false;
+  setEnvironment(false);
+  state.dashboardError=error.message||"Não foi possível consultar a API.";
+ }
+ if(state.view==="overview") $("#viewRoot").innerHTML=pageOverview();
+}
+const apiUrl=path=>String(cfg.apiBaseUrl||"").replace(/\/+$/,"")+(cfg.apiPrefix||"/api/v1")+path;
+const ruleApi={web:"/admin/web-rules",cert:"/admin/certificate-rules"};
+const certScopes={"e-cnpj":"Certificados e-CNPJ","fiscal":"Certificados fiscais","managed":"Todos os certificados gerenciados","custom":"Grupo específico"};
+const ruleState={web:{items:[],loading:false,error:""},cert:{items:[],loading:false,error:""}};
+function setEnvironment(live){
+ const badge=$("#environmentBadge");
+ if(badge){badge.classList.toggle("live",live);badge.innerHTML='<span></span> '+(live?"API CONECTADA":"API NÃO CONECTADA");}
+ const notice=$("#demoNotice");
+ if(notice)notice.hidden=live;
+}
+function mapRule(kind,r){
+ const enabled=r.enabled===true||Number(r.enabled)===1;
+ if(kind==="web")return{id:String(r.id),name:r.name,host:r.hostname,scope:r.scopeType==="all"||!r.scopeType?"Todos os computadores":(r.scopeType==="group"?"Grupo: ":"Computador: ")+(r.scopeValue||""),kind:r.action==="allow"?"Permitir exceção":"Bloquear site",enabled};
+ return{id:String(r.id),name:r.name,host:r.hostname,scope:certScopes[r.certificateScope]||r.certificateScope||"Todos os certificados gerenciados",kind:"Domínio autorizado para certificado",enabled};
+}
+function renderRuleList(kind){
+ const box=$(kind==="web"?"#webRuleList":"#certRuleList");
+ if(box)box.innerHTML=ruleList(kind);
+}
+async function refreshRules(kind){
+ const rs=ruleState[kind];
+ rs.loading=true;rs.error="";renderRuleList(kind);
+ try{
+  if(!cfg.apiBaseUrl||!state.token)throw new Error("Sessão administrativa ou API indisponível.");
+  const data=await fetchJson(apiUrl(ruleApi[kind]));
+  if(!Array.isArray(data.items))throw new Error("Resposta inesperada da API.");
+  rs.items=data.items.map(r=>mapRule(kind,r));
+ }catch(error){
+  rs.items=[];rs.error=error.message||"Falha ao consultar as regras.";
+ }
+ rs.loading=false;renderRuleList(kind);
+}
+function ruleList(kind){
+ const rs=ruleState[kind];
+ if(rs.loading)return '<div class="empty-state">Consultando regras no servidor...</div>';
+ if(rs.error)return '<div class="empty-state">Falha ao consultar a API: '+esc(rs.error)+'</div>';
+ if(!rs.items.length)return '<div class="empty-state">Nenhuma regra cadastrada no servidor.</div>';
+ return '<div class="table-wrap"><table><thead><tr><th>NOME DA REGRA</th><th>DOMÍNIO</th><th>APLICAÇÃO</th><th>STATUS</th><th>CONTROLE</th></tr></thead><tbody>'+rs.items.map(r=>'<tr><td><span class="cell-main">'+esc(r.name)+'</span><span class="cell-sub">'+esc(r.kind)+'</span></td><td>'+esc(r.host)+'</td><td>'+esc(r.scope)+'</td><td>'+pill(r.enabled?"Ativo":"Desativado")+'</td><td><button class="action-link" data-toggle-rule="'+kind+'" data-id="'+esc(r.id)+'">'+(r.enabled?"Desativar":"Ativar")+'</button> <button class="action-link danger" data-delete-rule="'+kind+'" data-id="'+esc(r.id)+'">Remover</button></td></tr>').join('')+'</tbody></table></div>';
+}
+function pageWeb(){return head("POLÍTICAS DE NAVEGAÇÃO","Bloqueio de sites","Crie regras por domínio, grupo de computadores ou dispositivo. A implementação real dependerá da extensão gerenciada e de política de rede.",'<span class="status-pill pill-gray">SALVO NO SERVIDOR · NÃO PUBLICADO</span>')+
+'<div class="rule-info"><strong>Negar por padrão ou lista de bloqueio:</strong> defina o perfil corporativo em Configurações gerais. Regras de exceção sempre precisam de aprovação da TI. As regras ficam salvas no servidor, mas só chegam aos computadores quando uma política for publicada. O bloqueio efetivo ainda depende do agente e da extensão gerenciada.</div>'+
 '<section class="card card-pad">'+cardHead("Nova regra de navegação","Adicione domínio e ação")+
-'<form id="webRuleForm" class="rule-form"><div class="field"><label>Nome da regra</label><input name="name" required maxlength="90" placeholder="Ex.: Jogos online"></div><div class="field"><label>Domínio (hostname)</label><input name="host" required maxlength="253" placeholder="exemplo.com.br"></div><div class="field"><label>Ação</label><select name="kind"><option>Bloquear site</option><option>Permitir exceção</option></select></div><button class="btn btn-primary" type="submit">＋ Adicionar regra</button></form>'+cardHead("Regras cadastradas","Políticas de navegação")+'<div id="webRuleList">'+ruleList(state.rules,"web")+'</div></section>'}
-function pageCertRules(){return head("POLÍTICA DE CERTIFICADOS","Sites para certificados","Determine em quais domínios o uso de certificados digitais pode ser autorizado, separado do controle geral de navegação.",demoLabel)+
+'<form id="webRuleForm" class="rule-form"><div class="field"><label>Nome da regra</label><input name="name" required maxlength="90" placeholder="Ex.: Jogos online"></div><div class="field"><label>Domínio (hostname)</label><input name="host" required maxlength="253" placeholder="exemplo.com.br"></div><div class="field"><label>Ação</label><select name="kind"><option value="block">Bloquear site</option><option value="allow">Permitir exceção</option></select></div><button class="btn btn-primary" type="submit">＋ Adicionar regra</button></form>'+cardHead("Regras cadastradas","Políticas de navegação")+'<div id="webRuleList">'+ruleList("web")+'</div></section>'}
+function pageCertRules(){return head("POLÍTICA DE CERTIFICADOS","Sites para certificados","Determine em quais domínios o uso de certificados digitais pode ser autorizado, separado do controle geral de navegação.",'<span class="status-pill pill-gray">SALVO NO SERVIDOR · NÃO PUBLICADO</span>')+
 '<div class="notice-box"><strong>Importante:</strong> esta lista define a política desejada. O bloqueio efetivo do uso da chave privada exige integração com o provedor criptográfico do Windows (CNG/KSP) e teste por portal. A extensão do navegador, sozinha, não controla todas as chamadas nativas.</div><br>'+
 '<section class="card card-pad">'+cardHead("Adicionar destino autorizado","Domínio permitido no contexto de uso de certificado")+
-'<form id="certRuleForm" class="rule-form"><div class="field"><label>Nome</label><input name="name" required maxlength="90" placeholder="Portal fiscal"></div><div class="field"><label>Domínio</label><input name="host" required maxlength="253" placeholder="portal.exemplo.gov.br"></div><div class="field"><label>Grupo de certificados</label><select name="scope"><option>Certificados e-CNPJ</option><option>Certificados fiscais</option><option>Todos os certificados gerenciados</option><option>Grupo específico</option></select></div><button class="btn btn-primary" type="submit">＋ Autorizar domínio</button></form>'+cardHead("Lista de autorização","Destinos com uso permitido")+'<div id="certRuleList">'+ruleList(state.certRules,"cert")+'</div></section>'}
-function pageDevices(){return head("INVENTÁRIO DE ENDPOINTS","Computadores","Nome do dispositivo, usuário associado, hardware, versão do Windows, rede, último boot, uptime, modo de proteção e comunicação.",demoLabel)+
-'<div class="toolbar"><input class="search-input" id="deviceSearch" placeholder="Pesquisar nome, usuário ou IP"><select class="filter-select" id="deviceFilter"><option value="all">Todos os estados</option><option>Online</option><option>Atenção</option><option>Offline</option></select></div><div class="device-grid" id="deviceGrid">'+demo.devices.map(d=>'<article class="card device-card"><div class="device-card-top"><div class="device-avatar">▣</div>'+pill(d.status)+'</div><div class="device-name">'+esc(d.name)+'</div><div class="device-sub">'+esc(d.user)+' · '+esc(d.model)+'</div><div class="device-specs"><div><span>SISTEMA</span><b>'+esc(d.os)+'</b></div><div><span>MEMÓRIA</span><b>'+esc(d.ram)+'</b></div><div><span>PROCESSADOR</span><b>'+esc(d.cpu)+'</b></div><div><span>DISCO</span><b>'+esc(d.disk)+' · '+d.used+'% usado</b></div><div><span>ÚLTIMO BOOT</span><b>'+esc(d.boot)+'</b></div><div><span>TEMPO LIGADO</span><b>'+esc(d.uptime)+'</b></div><div><span>IP CORPORATIVO</span><b>'+esc(d.ip)+'</b></div><div><span>MODO DO AGENTE</span><b>'+esc(d.mode)+'</b></div></div><div class="device-card-foot"><span>Última comunicação: '+esc(d.last)+'</span><button class="action-link" data-device-detail="'+d.id+'">Detalhes →</button></div></article>').join('')+'</div>'}
-function pageHealth(){return head("DIAGNÓSTICO E MANUTENÇÃO","Saúde dos computadores","Acompanhe armazenamento, uso de CPU/memória, alertas SMART, eventos do Windows, Microsoft Office e rotinas de manutenção.",demoLabel)+
-'<div class="metric-grid">'+metric("ALERTAS CRÍTICOS","2","<strong>Requerem ação</strong>","⚑")+metric("DISCOS ACIMA DE 85%","1","Espaço insuficiente","▤")+metric("OFFICE COM ALERTA","1","Falha de atualização","▣")+metric("SSD COM SAÚDE BAIXA","0","Prévia SMART","◈")+'</div>'+
-'<div class="split-grid"><section class="card card-pad">'+cardHead("Uso de armazenamento","Análise por unidade (estilo WinDirStat)")+
-demo.devices.slice(0,4).map(d=>'<div class="storage-row"><label>'+esc(d.name)+'</label><div class="progress"><span style="width:'+d.used+'%;background:'+(d.used>85?'#c72b35':'#e30613')+'"></span></div><strong>'+d.used+'%</strong></div>').join('')+
-'<p class="cell-sub">Futura análise de pastas e arquivos será executada localmente no computador e enviará somente agregados/tamanhos e caminhos permitidos pela política. Não haverá upload automático do conteúdo dos arquivos.</p></section>'+
-'<section class="card card-pad">'+cardHead("Unidades e saúde SSD","Telemetria ilustrativa")+
-'<div class="detail-grid">'+demo.devices.slice(0,3).map(d=>'<div class="detail-item"><span>'+esc(d.name)+'</span><b>SSD Health: '+esc(d.ssd)+'</b><small>Temperatura e vida útil dependem do fabricante/S.M.A.R.T.</small></div>').join('')+'</div></section></div>'+
-'<section class="card data-card">'+cardHead("Problemas detectados","Eventos de sistema, Office e integridade")+'<div class="table-wrap"><table><thead><tr><th>DISPOSITIVO</th><th>PROBLEMA</th><th>ORIGEM</th><th>DATA</th><th>SEVERIDADE</th></tr></thead><tbody>'+demo.errors.map(e=>'<tr><td>'+esc(e.pc)+'</td><td>'+esc(e.type)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.when)+'</td><td>'+pill(e.level)+'</td></tr>').join('')+'</tbody></table></div></section><br>'+
-'<section class="card card-pad">'+cardHead("Manutenção agendada","Rotinas autorizáveis")+
-'<div class="switch-row"><div><b>Análise de disco ao conectar à energia</b><small>Levantamento de diretórios e maiores arquivos; sem remover arquivos automaticamente.</small></div><label class="toggle"><input type="checkbox" disabled><span></span></label></div><div class="switch-row"><div><b>Otimização de unidades</b><small>Usar Optimize-Volume com detecção do tipo de unidade; TRIM para SSD e desfragmentação somente em HDD quando apropriado.</small></div><label class="toggle"><input type="checkbox" disabled><span></span></label></div><div class="switch-row"><div><b>Verificação de integridade do Office</b><small>Monitoramento de processos, versão, canal de atualização e logs de falha.</small></div><label class="toggle"><input type="checkbox" disabled><span></span></label></div></section>'}
-function pageCerts(){return head("INVENTÁRIO LOCAL","Certificados presentes na máquina","Descoberta por computador dos metadados públicos dos certificados instalados, sem copiar ou exportar chaves privadas.",demoLabel)+
-'<div class="notice-box"><strong>Privacidade:</strong> titular, emissor, serial, validade, thumbprint e repositório são metadados técnicos. Chaves privadas, senhas e arquivos PFX/P12 nunca são coletados por este inventário.</div><br>'+
-'<section class="card card-pad">'+cardHead("Certificados detectados","Amostra de metadados coletados no endpoint")+
-'<div class="cert-list">'+demo.certs.map(c=>'<div class="cert-row"><div class="cert-icon">◈</div><div><b>'+esc(c.name)+'</b><small>'+esc(c.holder)+' · '+esc(c.issuer)+'</small><small>Série: '+esc(c.serial)+' · '+esc(c.thumb)+'</small></div><div><small>'+esc(c.device)+' · '+esc(c.store)+'</small></div><div class="cert-expiry">'+pill(c.state)+'<br>Expira: '+esc(c.expires)+'</div></div>').join('')+'</div></section>'}
-function pageBrowsing(){return head("VISIBILIDADE DE NAVEGAÇÃO","Atividade de navegação","Registro somente de domínio/hostname, horário, dispositivo e decisão da política. Conteúdo de páginas, formulários, senhas e cookies não são coletados.",demoLabel)+
-'<div class="notice-box"><strong>Uso transparente:</strong> a organização deve informar os usuários sobre o monitoramento, sua finalidade e retenção. Não coletamos URLs completos, conteúdo, pesquisas pessoais ou dados digitados.</div><br>'+
-'<section class="card data-card">'+cardHead("Eventos de navegação","Amostra por domínio e decisão")+'<div class="table-wrap"><table><thead><tr><th>DISPOSITIVO</th><th>DOMÍNIO</th><th>HORÁRIO</th><th>DECISÃO</th><th>REGRA</th><th>MOTIVO</th></tr></thead><tbody>'+demo.activity.map(a=>'<tr><td>'+esc(a.device)+'</td><td class="cell-main">'+esc(a.domain)+'</td><td>'+esc(a.time)+'</td><td>'+pill(a.action)+'</td><td>'+esc(a.rule)+'</td><td>'+esc(a.reason)+'</td></tr>').join('')+'</tbody></table></div></section>'}
-function pageAudit(){return head("CENTRO DE EVENTOS","Auditoria e alertas","Histórico de alterações administrativas, bloqueios, falhas de integridade, tentativas de desinstalação e alertas dos dispositivos.",demoLabel)+
-'<div class="metric-grid">'+metric("EVENTOS HOJE","47","Bloqueios, sincronizações e saúde","≋")+metric("BLOQUEIOS","28","Navegação recusada","⊘")+metric("INTEGRIDADE","1","Tentativa a investigar","⚑")+metric("ALERTAS CRÍTICOS","2","Em aberto","♢")+'</div>'+
-'<section class="card data-card">'+cardHead("Linha do tempo de segurança","Eventos ilustrativos")+'<div class="card-pad">'+eventRows(demo.events)+'</div></section><br><section class="card data-card">'+cardHead("Fila de alertas por e-mail","Mensagens automáticas previstas")+'<div class="table-wrap"><table><thead><tr><th>ALERTA</th><th>DESTINATÁRIO</th><th>DISPARO</th><th>STATUS</th></tr></thead><tbody><tr><td>Disco acima de 90%</td><td>ti@costalog.com.br</td><td>Imediato</td><td>'+pill("Aguardando conexão")+'</td></tr><tr><td>Tentativa de desinstalação</td><td>ti@costalog.com.br</td><td>Imediato</td><td>'+pill("Aguardando conexão")+'</td></tr><tr><td>Falha Office / Windows</td><td>ti@costalog.com.br</td><td>Resumo diário</td><td>'+pill("Aguardando conexão")+'</td></tr></tbody></table></div></section>'}
-function pageDownloads(){
+'<form id="certRuleForm" class="rule-form"><div class="field"><label>Nome</label><input name="name" required maxlength="90" placeholder="Portal fiscal"></div><div class="field"><label>Domínio</label><input name="host" required maxlength="253" placeholder="portal.exemplo.gov.br"></div><div class="field"><label>Grupo de certificados</label><select name="scope"><option value="e-cnpj">Certificados e-CNPJ</option><option value="fiscal">Certificados fiscais</option><option value="managed" selected>Todos os certificados gerenciados</option><option value="custom">Grupo específico</option></select></div><button class="btn btn-primary" type="submit">＋ Autorizar domínio</button></form>'+cardHead("Lista de autorização","Destinos com uso permitido")+'<div id="certRuleList">'+ruleList("cert")+'</div></section>'}
+function pageDevices(){
+ return head("COMPUTADORES","Inventario de dispositivos","Dispositivos cadastrados e informacoes recebidas pela API.")+
+ '<div class="toolbar"><input class="search-input" id="deviceSearch" placeholder="Pesquisar dispositivo, usuario ou IP"><select class="filter-select" id="deviceFilter"><option value="all">Todos os estados</option><option value="active">Ativos</option><option value="disabled">Desativados</option><option value="revoked">Revogados</option></select><button class="action-link" data-action="refresh-devices">Atualizar</button></div>'+
+ '<div id="deviceFeedback" class="cell-sub">Aguardando consulta a API...</div><div class="device-grid" id="deviceGrid">'+renderDevices()+'</div>';
+}
+
+function formatDeviceDate(value){
+ if(!value)return "Nao informado";
+ const date=new Date(value);
+ if(Number.isNaN(date.getTime()))return "Nao informado";
+ return date.toLocaleString("pt-BR");
+}
+
+function renderDevices(){
+ const items=Array.isArray(state.devices)?state.devices:[];
+ const query=String(state.deviceQuery||"").trim().toLowerCase();
+ const filtered=items.filter(d=>{
+  const status=String(d.status||"").toLowerCase();
+  const matchesStatus=state.deviceFilter==="all"||status===state.deviceFilter;
+  const searchable=[d.deviceName,d.username,d.lastIp,d.model,d.osCaption,d.domainName].join(" ").toLowerCase();
+  return matchesStatus&&searchable.includes(query);
+ });
+ if(state.devicesError)return '<div class="card card-pad">Falha ao consultar API: '+esc(state.devicesError)+'</div>';
+ if(!items.length)return '<div class="card card-pad"><h3>Nenhum computador cadastrado</h3><p class="cell-sub">Nenhum dispositivo foi registrado no banco de dados.</p></div>';
+ if(!filtered.length)return '<div class="card card-pad">Nenhum dispositivo encontrado para esta pesquisa.</div>';
+ return filtered.map(d=>{
+  const status=String(d.status||"unknown").toLowerCase();
+  const label=status==="active"?"Ativo":status==="disabled"?"Desativado":status==="revoked"?"Revogado":"Desconhecido";
+  const ram=Number(d.ramTotalBytes)>0?(Number(d.ramTotalBytes)/1073741824).toFixed(1)+" GB":"Nao informado";
+  return '<article class="card device-card"><div class="device-card-top"><div class="device-avatar">PC</div><span class="status-pill">'+esc(label)+'</span></div>'+
+   '<div class="device-name">'+esc(d.deviceName||"Dispositivo sem nome")+'</div>'+
+   '<div class="device-sub">'+esc(d.username||"Usuario nao informado")+' - '+esc(d.model||d.manufacturer||"Modelo nao informado")+'</div>'+
+   '<div class="device-specs">'+
+   '<div><span>WINDOWS</span><b>'+esc(d.osCaption||"Nao informado")+'</b></div>'+
+   '<div><span>VERSAO</span><b>'+esc(d.osVersion||"Nao informado")+'</b></div>'+
+   '<div><span>MEMORIA RAM</span><b>'+esc(ram)+'</b></div>'+
+   '<div><span>PROCESSADOR</span><b>'+esc(d.cpuName||"Nao informado")+'</b></div>'+
+   '<div><span>ULTIMO BOOT</span><b>'+esc(formatDeviceDate(d.lastBootAt))+'</b></div>'+
+   '<div><span>ULTIMO CONTATO</span><b>'+esc(formatDeviceDate(d.lastSeenAt))+'</b></div>'+
+   '<div><span>IP</span><b>'+esc(d.lastIp||"Nao informado")+'</b></div>'+
+   '<div><span>VERSAO DO AGENTE</span><b>'+esc(d.agentVersion||"Nao informado")+'</b></div>'+
+   '</div><div class="device-card-foot"><span>Status: '+esc(label)+'</span></div></article>';
+ }).join("");
+}
+
+async function refreshDevices(){
+ const feedback=$("#deviceFeedback");
+ if(feedback)feedback.textContent="Consultando dispositivos...";
+ try{
+  const base=String(cfg.apiBaseUrl||"").replace(/\/+$/,"");
+  if(!base||!state.token)throw new Error("Sessao administrativa ou API indisponivel.");
+  const data=await fetchJson(base+(cfg.apiPrefix||"/api/v1")+"/admin/devices");
+  if(!Array.isArray(data.items))throw new Error("Resposta inesperada da API.");
+  state.devices=data.items;
+  state.devicesError="";
+ }catch(error){
+  state.devices=[];
+  state.devicesError=error.message||"Falha ao carregar dispositivos.";
+ }
+ if(state.view==="devices"){
+  const grid=$("#deviceGrid");
+  if(grid)grid.innerHTML=renderDevices();
+  const message=$("#deviceFeedback");
+  if(message)message.textContent=state.devicesError||("Dispositivos encontrados: "+state.devices.length);
+ }
+}function pageHealth(){
+ return head("DIAGNOSTICO E MANUTENCAO","Saude dos computadores","Indicadores de armazenamento, hardware, Windows e Microsoft Office.")+
+ '<div class="notice-box"><strong>Telemetria ainda nao disponivel.</strong><br>Nenhum agente Windows esta enviando dados reais para esta tela. Os indicadores serao exibidos quando a coleta estiver implementada e os computadores estiverem conectados.</div><br>'+
+ '<div class="metric-grid">'+
+ metric("ALERTAS CRITICOS","--","Aguardando dados reais","! ")+
+ metric("DISCOS ACIMA DE 85%","--","Aguardando dados de armazenamento","D")+
+ metric("OFFICE COM ALERTA","--","Aguardando diagnostico do Office","O")+
+ metric("SSD COM SAUDE BAIXA","--","Aguardando dados S.M.A.R.T.","S")+
+ '</div>'+
+ '<div class="split-grid">'+
+ '<section class="card card-pad">'+cardHead("Uso de armazenamento","Analise por computador e unidade")+
+ '<div class="empty-state">Nenhum dado de armazenamento recebido.</div>'+
+ '<p class="cell-sub">A coleta futura podera apresentar espaco total, espaco utilizado e espaco livre por unidade.</p></section>'+
+ '<section class="card card-pad">'+cardHead("Unidades e saude SSD","Diagnostico de discos")+
+ '<div class="empty-state">Nenhum dado de saude de disco recebido.</div>'+
+ '<p class="cell-sub">A disponibilidade de temperatura e vida util depende do hardware e do suporte S.M.A.R.T.</p></section></div>'+
+ '<section class="card data-card">'+cardHead("Problemas detectados","Eventos reais do Windows e do Microsoft Office")+
+ '<div class="empty-state">Nenhum evento recebido. Isso nao significa que nao existam problemas no computador.</div></section><br>'+
+ '<section class="card card-pad">'+cardHead("Manutencao agendada","Rotinas que poderao ser configuradas pela TI")+
+ '<div class="notice-box">As rotinas ainda nao estao implementadas. Nenhuma manutencao sera executada automaticamente.</div>'+
+ '<div class="switch-row"><div><b>Analise de armazenamento</b><small>Levantamento de uso de disco e diretorios autorizados.</small></div><label class="toggle"><input type="checkbox" disabled><span></span></label></div>'+
+ '<div class="switch-row"><div><b>Otimizacao de unidades</b><small>Operacao condicionada ao tipo de unidade e aprovacao da TI.</small></div><label class="toggle"><input type="checkbox" disabled><span></span></label></div>'+
+ '<div class="switch-row"><div><b>Verificacao do Microsoft Office</b><small>Monitoramento de versoes, atualizacoes e eventos de falha.</small></div><label class="toggle"><input type="checkbox" disabled><span></span></label></div></section>'
+}function pageCerts(){
+ return head("INVENTARIO LOCAL","Certificados presentes na maquina","Inventario dos metadados publicos dos certificados instalados nos computadores.")+
+ '<div class="notice-box"><strong>Protecao de certificados:</strong> somente metadados tecnicos publicos poderao ser enviados. Chaves privadas, senhas e arquivos PFX/P12 nunca devem ser coletados ou exportados pelo agente.</div><br>'+
+ '<section class="card card-pad">'+
+ cardHead("Certificados detectados","Inventario recebido dos computadores")+
+ '<div class="empty-state">Nenhum certificado recebido.</div>'+
+ '<p class="cell-sub">Os certificados aparecerao aqui quando o agente Windows estiver implementado, conectado e autorizado a enviar os metadados publicos.</p>'+
+ '</section>'
+}function pageBrowsing(){
+ return head("VISIBILIDADE DE NAVEGACAO","Atividade de navegacao","Registro de dominios, horarios, dispositivos e decisoes das politicas.")+
+ '<div class="notice-box"><strong>Privacidade e transparencia:</strong> o monitoramento deve ser informado aos usuarios e limitado a finalidade corporativa. Nao coletamos conteudo de paginas, formularios, senhas ou cookies.</div><br>'+
+ '<section class="card data-card">'+
+ cardHead("Eventos de navegacao","Registros recebidos dos computadores")+
+ '<div class="empty-state">Nenhum evento de navegacao recebido.</div>'+
+ '<p class="cell-sub">Os registros aparecerao aqui quando o agente Windows estiver implementado, conectado e autorizado a enviar eventos.</p>'+
+ '</section>'
+}function pageAudit(){
+ return head("CENTRO DE EVENTOS","Auditoria e alertas","Historico de alteracoes administrativas, eventos de seguranca e alertas dos dispositivos.")+
+ '<div class="metric-grid">'+
+ metric("EVENTOS HOJE","--","Aguardando registros reais","EV")+
+ metric("BLOQUEIOS","--","Aguardando eventos de bloqueio","BL")+
+ metric("INTEGRIDADE","--","Aguardando verificacoes","IN")+
+ metric("ALERTAS CRITICOS","--","Aguardando alertas reais","AL")+
+ '</div>'+
+ '<section class="card data-card">'+
+ cardHead("Linha do tempo de seguranca","Eventos registrados pela API")+
+ '<div class="empty-state">Nenhum evento de auditoria recebido.</div>'+
+ '</section><br>'+
+ '<section class="card data-card">'+
+ cardHead("Fila de alertas por e-mail","Configuracao de notificacoes")+
+ '<div class="notice-box">O envio de e-mails ainda nao esta configurado. Nenhuma notificacao foi enviada ou esta aguardando envio.</div>'+
+ '<div class="empty-state">Nenhuma notificacao registrada.</div>'+
+ '</section>'
+}function pageDownloads(){
  const downloadUrl=String(cfg.agentDownloadUrl||"");
  const hasDownload=downloadUrl.toLowerCase().startsWith("https://");
  const downloadAction=hasDownload?'<a class="btn btn-primary" href="'+esc(downloadUrl)+'" target="_blank" rel="noopener">Baixar pacote Windows</a>':'<button class="btn btn-secondary" disabled>Download será liberado após a publicação</button>';
@@ -142,11 +307,44 @@ demo.email.map(m=>'<div class="switch-row"><div><b>'+esc(m.mailbox)+'</b><small>
 '<section class="card card-pad">'+cardHead("Alertas e destinatários","Notificação de incidentes")+
 '<div class="form-stack"><div class="field"><label>E-mail principal de TI</label><input disabled value="ti@costalog.com.br"></div><div class="field"><label>Alertas críticos</label><input disabled value="Imediatos"></div><div class="field"><label>Resumo operacional</label><input disabled value="Diário"></div></div></section></div>'}
 const pages={"overview":pageOverview,"web-blocking":pageWeb,"certificate-rules":pageCertRules,"devices":pageDevices,"health":pageHealth,"installed-certs":pageCerts,"browsing":pageBrowsing,"audit":pageAudit,"downloads":pageDownloads,"agent-settings":pageAgentSettings,"settings":pageSettings};
-function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");}
+function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");if(v==="overview")refreshDashboard();if(v==="devices")refreshDevices();if(v==="web-blocking")refreshRules("web");if(v==="certificate-rules")refreshRules("cert");}
 function validHost(h){return /^(?=.{1,253}$)(\*\.)?([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(h.trim())}
-function addRule(form,kind){const data=Object.fromEntries(new FormData(form));const host=data.host.trim().toLowerCase().replace(/^https?:\/\//,"").replace(/\/$/,"");if(!validHost(host)){toast("Informe um hostname válido, sem caminho ou protocolo.");return}const arr=kind==="web"?state.rules:state.certRules;if(arr.some(r=>r.host===host)){toast("Este domínio já está cadastrado.");return}arr.unshift({id:Date.now(),name:data.name.trim(),host,scope:data.scope||"Todos os computadores",kind:data.kind||"Regra autorizada",enabled:true});saveDemo();navigate(kind==="web"?"web-blocking":"certificate-rules");toast("Regra adicionada ao rascunho local. Não bloqueia computadores ainda.")}
-function toggleRule(kind,id){const arr=kind==="web"?state.rules:state.certRules;const r=arr.find(x=>x.id===id);if(r){r.enabled=!r.enabled;saveDemo();navigate(kind==="web"?"web-blocking":"certificate-rules");toast("Rascunho atualizado. Publicação na API ainda indisponível.")}}
-function deleteRule(kind,id){const arr=kind==="web"?state.rules:state.certRules;const idx=arr.findIndex(x=>x.id===id);if(idx>=0&&confirm("Remover esta regra do rascunho local?")){arr.splice(idx,1);saveDemo();navigate(kind==="web"?"web-blocking":"certificate-rules");toast("Regra removida do rascunho.")}}
+async function addRule(form,kind){
+ const data=Object.fromEntries(new FormData(form));
+ const host=String(data.host||"").trim().toLowerCase().replace(/^https?:\/\//,"").replace(/\/.*$/,"");
+ if(!validHost(host)){toast("Informe um hostname válido, sem caminho ou protocolo.");return}
+ if(ruleState[kind].items.some(r=>r.host===host)){toast("Este domínio já está cadastrado.");return}
+ const body=kind==="web"
+  ?{name:String(data.name||"").trim(),hostname:host,action:data.kind==="allow"?"allow":"block",scopeType:"all",scopeValue:"",enabled:true}
+  :{name:String(data.name||"").trim(),hostname:host,certificateScope:data.scope||"managed",enabled:true};
+ const button=form.querySelector('button[type="submit"]');
+ if(button)button.disabled=true;
+ try{
+  await fetchJson(apiUrl(ruleApi[kind]),{method:"POST",body:JSON.stringify(body)});
+  form.reset();
+  toast("Regra salva no servidor. Ela só chega aos computadores após a publicação da política.");
+  await refreshRules(kind);
+ }catch(error){toast(error.message||"Não foi possível salvar a regra.")}
+ finally{if(button)button.disabled=false}
+}
+async function toggleRule(kind,id){
+ const r=ruleState[kind].items.find(x=>x.id===id);
+ if(!r)return;
+ try{
+  await fetchJson(apiUrl(ruleApi[kind]+"/"+encodeURIComponent(id)),{method:"PATCH",body:JSON.stringify({enabled:!r.enabled})});
+  toast(r.enabled?"Regra desativada no servidor.":"Regra ativada no servidor.");
+  await refreshRules(kind);
+ }catch(error){toast(error.message||"Não foi possível alterar a regra.")}
+}
+async function deleteRule(kind,id){
+ const r=ruleState[kind].items.find(x=>x.id===id);
+ if(!r||!confirm("Remover a regra \""+r.name+"\" do servidor?"))return;
+ try{
+  await fetchJson(apiUrl(ruleApi[kind]+"/"+encodeURIComponent(id)),{method:"DELETE"});
+  toast("Regra removida do servidor.");
+  await refreshRules(kind);
+ }catch(error){toast(error.message||"Não foi possível remover a regra.")}
+}
 async function createEnrollment(form){
  const feedback=form.querySelector("#enrollmentFeedback");
  const button=form.querySelector('button[type="submit"]');
@@ -164,33 +362,178 @@ async function createEnrollment(form){
  finally{button.disabled=false}
 }
 async function fetchJson(url,options={}){const res=await fetch(url,{...options,credentials:"omit",cache:"no-store",headers:{"Accept":"application/json",...(options.body?{"Content-Type":"application/json"}:{}),...(state.token?{"Authorization":"Bearer "+state.token}:{}),...(options.headers||{})}});const body=await res.json().catch(()=>({}));if(!res.ok)throw new Error(body.message||body.error||"Falha na API: HTTP "+res.status);return body}
-async function validateCentral(token){const base=String(cfg.identityBaseUrl||"").replace(/\/+$/,"");if(!base)return false;const r=await fetch(base+(cfg.identityMePath||"/api/auth/me"),{headers:{Authorization:"Bearer "+token,Accept:"application/json"},credentials:"omit",cache:"no-store"});const j=await r.json().catch(()=>({}));return r.ok&&j.authenticated===true}
-async function validateAdminSession(token){
- if(!await validateCentral(token))return false;
- const base=String(cfg.apiBaseUrl||"").replace(/\/+$/,"");
- if(!base)return false;
- try{
-  const r=await fetch(base+(cfg.apiPrefix||"/api/v1")+"/admin/me",{headers:{Authorization:"Bearer "+token,Accept:"application/json"},credentials:"omit",cache:"no-store"});
-  const data=await r.json().catch(()=>({}));
-  return r.ok&&data.authenticated===true&&data.admin?.role==="admin";
- }catch{return false}
+async function validateAdminSession(token) {
+  const base = String(cfg.apiBaseUrl || "").replace(/\/+$/, "");
+  if (!base || !token) return false;
+
+  try {
+    const response = await fetch(
+      base + (cfg.apiPrefix || "/api/v1") + (cfg.adminMePath || "/admin/me"),
+      {
+        method: "GET",
+        headers: {
+          Authorization: "Bearer " + token,
+          Accept: "application/json"
+        },
+        credentials: "omit",
+        cache: "no-store"
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    return response.ok &&
+      data.authenticated === true &&
+      data.admin?.role === "admin";
+  } catch {
+    return false;
+  }
 }
-async function identityLogin(username,password){const base=String(cfg.identityBaseUrl||"").replace(/\/+$/,"");if(!base)throw new Error("Serviço de identidade não configurado.");const r=await fetch(base+(cfg.identityLoginPath||"/api/auth/login"),{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},credentials:"omit",body:JSON.stringify({username,password})});const j=await r.json().catch(()=>({}));if(!r.ok||!j.token)throw new Error(j.error||"Não foi possível validar o acesso na Central.");if(!await validateAdminSession(j.token))throw new Error("A conta não está autorizada no painel do AGENTE COSTALOG ou a API administrativa ainda não está configurada. Solicite liberação à TI.");state.token=j.token;sessionStorage.setItem(tokenKey,j.token)}
-function openApp(){ $("#authGate").hidden=true;$("#app").hidden=false;navigate("overview");}
-async function start(){loadDemo();const stored=sessionStorage.getItem(tokenKey);if(stored){try{if(await validateAdminSession(stored)){state.token=stored;openApp();return}}catch{}sessionStorage.removeItem(tokenKey)}$("#authGate").hidden=false;$("#app").hidden=true}
-$("#loginForm").addEventListener("submit",async e=>{e.preventDefault();const b=$("#loginButton"),f=$("#loginFeedback");b.disabled=true;b.textContent="Validando acesso…";f.textContent="";try{await identityLogin($("#username").value.trim(),$("#password").value);$("#password").value="";openApp();toast("Sessão da Central reconhecida.")}catch(err){f.textContent=err.message}finally{b.disabled=false;b.innerHTML='Acessar plataforma <span>→</span>'}});
-$("#logoutButton").addEventListener("click",()=>{state.token=null;sessionStorage.removeItem(tokenKey);$("#app").hidden=true;$("#authGate").hidden=false;toast("Sessão compartilhada encerrada.")});
+
+async function adminLogin(username, password) {
+  const base = String(cfg.apiBaseUrl || "").replace(/\/+$/, "");
+
+  if (!base) {
+    throw new Error("API do AGENTE COSTALOG não configurada.");
+  }
+
+  const response = await fetch(
+    base + (cfg.apiPrefix || "/api/v1") + (cfg.adminLoginPath || "/auth/login"),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      credentials: "omit",
+      cache: "no-store",
+      body: JSON.stringify({ username, password })
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || !data.token) {
+    throw new Error(data.error || data.message || "Usuário ou senha inválidos.");
+  }
+
+  if (!await validateAdminSession(data.token)) {
+    throw new Error("A API não confirmou a autorização administrativa.");
+  }
+
+  state.token = data.token;
+  sessionStorage.setItem(tokenKey, data.token);
+}
+
+function openApp() {
+  $("#authGate").hidden = true;
+  $("#app").hidden = false;
+  navigate("overview");
+}
+
+async function start() {
+
+  const stored = sessionStorage.getItem(tokenKey);
+
+  if (stored) {
+    try {
+      if (await validateAdminSession(stored)) {
+        state.token = stored;
+        openApp();
+        return;
+      }
+    } catch {}
+
+    sessionStorage.removeItem(tokenKey);
+  }
+
+  state.token = null;
+  $("#authGate").hidden = false;
+  $("#app").hidden = true;
+}
+
+$("#loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+
+  const button = $("#loginButton");
+  const feedback = $("#loginFeedback");
+
+  button.disabled = true;
+  button.textContent = "Validando acesso…";
+  feedback.textContent = "";
+
+  try {
+    await adminLogin(
+      $("#username").value.trim(),
+      $("#password").value
+    );
+
+    $("#password").value = "";
+    openApp();
+    toast("Acesso ao AGENTE COSTALOG autorizado.");
+  } catch (error) {
+    feedback.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.innerHTML = 'Acessar plataforma <span>→</span>';
+  }
+});
+
+$("#logoutButton").addEventListener("click", async () => {
+  const base = String(cfg.apiBaseUrl || "").replace(/\/+$/, "");
+
+  try {
+    if (state.token && base) {
+      await fetch(
+        base + (cfg.apiPrefix || "/api/v1") + (cfg.adminLogoutPath || "/auth/logout"),
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer " + state.token,
+            Accept: "application/json"
+          },
+          credentials: "omit",
+          cache: "no-store"
+        }
+      );
+    }
+  } catch {
+    // Encerra a sessão local mesmo se a API estiver indisponível.
+  } finally {
+    state.token = null;
+    sessionStorage.removeItem(tokenKey);
+    $("#app").hidden = true;
+    $("#authGate").hidden = false;
+    toast("Sessão do AGENTE COSTALOG encerrada.");
+  }
+});
 $("#sideNav").addEventListener("click",e=>{const b=e.target.closest("[data-view]");if(b)navigate(b.dataset.view)});
 $("#viewRoot").addEventListener("click",e=>{
- const nav=e.target.closest("[data-nav]");if(nav){navigate(nav.dataset.nav);return}
- const tog=e.target.closest("[data-toggle-rule]");if(tog){toggleRule(tog.dataset.toggleRule,Number(tog.dataset.id));return}
- const del=e.target.closest("[data-delete-rule]");if(del){deleteRule(del.dataset.deleteRule,Number(del.dataset.id));return}
- if(e.target.closest('[data-action="refresh"]')){toast("Painel de demonstração atualizado. A API real ainda não está conectada.");return}
- const detail=e.target.closest("[data-device-detail]");if(detail){const d=demo.devices.find(x=>x.id===detail.dataset.deviceDetail);if(d)toast(d.name+" · "+d.os+" · "+d.ip+" · uptime "+d.uptime);return}
+ const nav=e.target.closest("[data-nav]");
+ if(nav){navigate(nav.dataset.nav);return}
+ const tog=e.target.closest("[data-toggle-rule]");
+ if(tog){toggleRule(tog.dataset.toggleRule,tog.dataset.id);return}
+ const del=e.target.closest("[data-delete-rule]");
+ if(del){deleteRule(del.dataset.deleteRule,del.dataset.id);return}
+ if(e.target.closest('[data-action="refresh-devices"]')){refreshDevices();return}
+ if(e.target.closest('[data-action="refresh"]')){refreshDashboard();return}
 });
-$("#viewRoot").addEventListener("submit",e=>{if(e.target.id==="webRuleForm"){e.preventDefault();addRule(e.target,"web")}if(e.target.id==="certRuleForm"){e.preventDefault();addRule(e.target,"cert")}if(e.target.id==="enrollmentForm"){e.preventDefault();createEnrollment(e.target)}});
+$("#viewRoot").addEventListener("input",e=>{
+ if(e.target.id==="deviceSearch"){
+  state.deviceQuery=e.target.value;
+  const grid=$("#deviceGrid");
+  if(grid)grid.innerHTML=renderDevices();
+ }
+});
+$("#viewRoot").addEventListener("change",e=>{
+ if(e.target.id==="deviceFilter"){
+  state.deviceFilter=e.target.value;
+  const grid=$("#deviceGrid");
+  if(grid)grid.innerHTML=renderDevices();
+ }
+});$("#viewRoot").addEventListener("submit",e=>{if(e.target.id==="webRuleForm"){e.preventDefault();addRule(e.target,"web")}if(e.target.id==="certRuleForm"){e.preventDefault();addRule(e.target,"cert")}if(e.target.id==="enrollmentForm"){e.preventDefault();createEnrollment(e.target)}});
 $("#menuButton").addEventListener("click",()=>$("#sidebar").classList.toggle("open"));
 $("#alertsButton").addEventListener("click",()=>navigate("audit"));
-$("#environmentBadge").addEventListener("click",()=>toast("Ambiente demonstração: nenhuma telemetria real recebida."));
+$("#environmentBadge").addEventListener("click",()=>toast(state.apiReady?"Conectado à API. Os indicadores vêm do banco de dados.":"API não conectada: nenhum dado real está sendo exibido."));
 start();
 })();

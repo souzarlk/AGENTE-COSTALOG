@@ -29,6 +29,7 @@ jobs:
       DB_PASSWORD: ci_password
       DB_NAME: costalog_ci
       DEVICE_TOKEN_PEPPER: ci-only-device-token-pepper-32-bytes-min
+      ADMIN_SESSION_PEPPER: ci-only-admin-session-pepper-32-bytes-min
       CENTRAL_ADMIN_AUTH_SECRET: ci-only-central-secret-32-bytes-minimum
       CENTRAL_TOKEN_ISSUER: costalog-central-notas-fiscais
     steps:

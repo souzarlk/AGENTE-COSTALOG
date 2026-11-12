@@ -7,7 +7,7 @@
 <meta name="description" content="Central de segurança e monitoramento de endpoints da COSTALOG.">
 <title>AGENTE COSTALOG | Central de Segurança</title>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="assets/css/app.css?v=1">
+<link rel="stylesheet" href="assets/css/app.css?v=2">
 </head>
 <body>
 <div id="authGate" class="auth-gate">
@@ -20,14 +20,14 @@
       <div class="auth-icon">⌑</div>
       <div class="eyebrow">ACESSO ADMINISTRATIVO</div>
       <h1>Central de Segurança</h1>
-      <p>Entre com a conta da Central de Notas Fiscais previamente autorizada pela equipe de TI.</p>
+      <p>Entre com sua conta administrativa do AGENTE COSTALOG.</p>
       <label for="username">Usuário</label>
       <input id="username" name="username" autocomplete="username" required maxlength="80" placeholder="Seu usuário">
       <label for="password">Senha</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="200" placeholder="Sua senha">
       <button id="loginButton" class="btn btn-primary btn-block" type="submit">Acessar plataforma <span>→</span></button>
       <div id="loginFeedback" class="form-feedback" role="alert"></div>
-      <div class="auth-foot"><span class="status-dot"></span> Autenticação centralizada e protegida</div>
+      <div class="auth-foot"><span class="status-dot"></span> Autenticação administrativa própria e protegida</div>
     </form>
   </div>
   <div class="auth-bottom">COSTALOG · Conectamos destinos. Movimentamos resultados.</div>
@@ -43,7 +43,7 @@
       <button class="nav-item active" data-view="overview"><span class="nav-icon">◫</span><span>Visão geral</span></button>
       <button class="nav-item" data-view="web-blocking"><span class="nav-icon">⊘</span><span>Bloqueio de sites</span></button>
       <button class="nav-item" data-view="certificate-rules"><span class="nav-icon">◈</span><span>Sites para certificados</span></button>
-      <button class="nav-item" data-view="devices"><span class="nav-icon">▣</span><span>Computadores</span><span class="nav-count">12</span></button>
+      <button class="nav-item" data-view="devices"><span class="nav-icon">▣</span><span>Computadores</span></button>
       <button class="nav-item" data-view="health"><span class="nav-icon">⌁</span><span>Saúde dos computadores</span></button>
       <button class="nav-item" data-view="installed-certs"><span class="nav-icon">▤</span><span>Certificados na máquina</span></button>
       <button class="nav-item" data-view="browsing"><span class="nav-icon">◎</span><span>Atividade de navegação</span></button>
@@ -82,7 +82,7 @@
 </div>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="assets/js/config.js?v=1"></script>
-<script src="assets/js/app.js?v=1"></script>
+<script src="assets/js/config.js?v=2"></script>
+<script src="assets/js/app.js?v=3"></script>
 </body>
 </html>
