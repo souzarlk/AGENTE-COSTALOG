@@ -148,7 +148,7 @@ function pageCertRules(){return head("POLÍTICA DE CERTIFICADOS","Sites para cer
 '<form id="certRuleForm" class="rule-form"><div class="field"><label>Nome</label><input name="name" required maxlength="90" placeholder="Portal fiscal"></div><div class="field"><label>Domínio</label><input name="host" required maxlength="253" placeholder="portal.exemplo.gov.br"></div><div class="field"><label>Grupo de certificados</label><select name="scope"><option value="e-cnpj">Certificados e-CNPJ</option><option value="fiscal">Certificados fiscais</option><option value="managed" selected>Todos os certificados gerenciados</option><option value="custom">Grupo específico</option></select></div><button class="btn btn-primary" type="submit">＋ Autorizar domínio</button></form>'+cardHead("Lista de autorização","Destinos com uso permitido")+'<div id="certRuleList">'+ruleList("cert")+'</div></section>'}
 function pageDevices(){
  return head("COMPUTADORES","Inventario de dispositivos","Dispositivos cadastrados e informacoes recebidas pela API.")+
- '<div class="toolbar"><input class="search-input" id="deviceSearch" placeholder="Pesquisar dispositivo, usuario ou IP"><select class="filter-select" id="deviceFilter"><option value="all">Todos os estados</option><option value="active">Ativos</option><option value="disabled">Desativados</option><option value="revoked">Revogados</option></select><button class="action-link" data-action="refresh-devices">Atualizar</button></div>'+
+ '<div class="toolbar"><input class="search-input" id="deviceSearch" placeholder="Pesquisar dispositivo, usuario ou IP"><select class="filter-select" id="deviceFilter"><option value="all">Todos os estados</option><option value="active">Ativos</option><option value="disabled">Desativados</option><option value="revoked">Removidos</option></select><button class="action-link" data-action="refresh-devices">Atualizar</button></div>'+
  '<div id="deviceFeedback" class="cell-sub">Aguardando consulta a API...</div><div class="device-grid" id="deviceGrid">'+renderDevices()+'</div>';
 }
 
@@ -173,7 +173,7 @@ function renderDevices(){
  if(!filtered.length)return '<div class="card card-pad">Nenhum dispositivo encontrado para esta pesquisa.</div>';
  return filtered.map(d=>{
   const status=String(d.status||"unknown").toLowerCase();
-  const label=status==="active"?"Ativo":status==="disabled"?"Desativado":status==="revoked"?"Revogado":"Desconhecido";
+  const label=status==="active"?"Ativo":status==="disabled"?"Desativado":status==="revoked"?"Removido":"Desconhecido";
   const ram=Number(d.ramTotalBytes)>0?(Number(d.ramTotalBytes)/1073741824).toFixed(1)+" GB":"Nao informado";
   return '<article class="card device-card"><div class="device-card-top"><div class="device-avatar">PC</div><span class="status-pill">'+esc(label)+'</span></div>'+
    '<div class="device-name">'+esc(d.deviceName||"Dispositivo sem nome")+'</div>'+
@@ -261,7 +261,7 @@ function certTable(list,withDevice){
  return '<div class="table-wrap"><table><thead><tr>'+(withDevice?'<th>COMPUTADOR</th>':'')+'<th>CERTIFICADO</th><th>EMISSOR</th><th>VÁLIDO ATÉ</th><th>REPOSITÓRIO</th><th>CHAVE PRIVADA</th><th>SITUAÇÃO</th></tr></thead><tbody>'+
  list.map(c=>{const st=certState(c.notAfter);return '<tr>'+(withDevice?'<td>'+esc(c.deviceName||"")+'</td>':'')+'<td><span class="cell-main">'+esc(certName(c.subjectName))+'</span><span class="cell-sub" title="'+esc(c.subjectName)+'">'+esc(String(c.subjectName||"").length>90?String(c.subjectName).slice(0,90)+"…":c.subjectName)+'</span></td><td>'+esc(certName(c.issuerName))+'</td><td>'+esc(c.notAfter?new Date(c.notAfter).toLocaleDateString("pt-BR"):"—")+'</td><td>'+esc(c.storeName)+'</td><td>'+(c.hasPrivateKey?"Sim":"Não")+'</td><td><span class="status-pill '+st[1]+'">'+esc(st[0])+'</span></td></tr>'}).join('')+'</tbody></table></div>';
 }
-function pageDeviceDetail(){return head("COMPUTADORES","Detalhes do computador","Informações recebidas do agente instalado neste computador.",'<button class="btn btn-secondary btn-small" data-nav="devices">← Voltar</button> <button class="btn btn-secondary btn-small" data-action="refresh-detail">↻ Atualizar</button>')+'<div id="deviceDetail"><div class="empty-state">Carregando...</div></div>'}
+function pageDeviceDetail(){return head("COMPUTADORES","Detalhes do computador","Informações recebidas do agente instalado neste computador.",'<button class="btn btn-secondary btn-small" data-nav="devices">← Voltar</button> <button class="btn btn-secondary btn-small" data-action="refresh-detail">↻ Atualizar</button> <button class="btn btn-secondary btn-small" data-action="uninstall-device" style="color:#c72b35">Desinstalar agente</button>')+'<div id="deviceDetail"><div class="empty-state">Carregando...</div></div>'}
 async function refreshDeviceDetail(){
  const box=$("#deviceDetail");if(!box||!state.detailId)return;
  try{
@@ -404,20 +404,22 @@ async function downloadInstaller(button){
  }catch(error){toast(error.message||"Falha no download.")}
  finally{button.disabled=false;button.textContent=original}
 }
-function pageAgentSettings(){return head("CONTROLE DO SERVIÇO","Configurações agente","Gerencie parâmetros de instalação, acesso local de suporte, autorização de remoção e política antiviolação.",demoLabel)+
-'<div class="notice-box"><strong>Instalação dos funcionários:</strong> o computador recebe somente um serviço Windows em segundo plano, sem painel, ícone, atalho ou interface de gestão. A TI define o modo de proteção e cria uma senha temporária, de uso único e com validade limitada. O funcionário não escolhe as configurações.</div><br>'+
-'<div class="settings-grid"><section class="card card-pad">'+cardHead("Política de integridade","Controles de proteção do serviço")+
-'<div class="switch-row"><div><b>Impedir parada por usuário padrão</b><small>O serviço roda com identidade de serviço e ACLs restritas. Administradores autorizados mantêm recuperação documentada.</small></div><label class="toggle"><input type="checkbox" checked disabled><span></span></label></div>'+
-'<div class="switch-row"><div><b>Exigir aprovação para desinstalação</b><small>Solicitação registrada no endpoint; aprovação central emite token assinado, individual e com validade curta.</small></div><label class="toggle"><input type="checkbox" checked disabled><span></span></label></div>'+
-'<div class="switch-row"><div><b>Detectar alteração de arquivos do agente</b><small>Verificação de assinatura, hash, serviço, extensão e estado da política.</small></div><label class="toggle"><input type="checkbox" checked disabled><span></span></label></div>'+
-'<div class="switch-row"><div><b>Alertar perda de comunicação</b><small>Alerta quando heartbeat excede o limite configurado.</small></div><label class="toggle"><input type="checkbox" checked disabled><span></span></label></div></section>'+
-'<section class="card card-pad">'+cardHead("Autorização de remoção","Solicitações pendentes de demonstração")+
-'<div class="empty-state">Nenhuma solicitação real recebida. O agente ainda não está instalado.</div>'+
-'<div class="notice-box">Quando implantado, cada autorização deverá indicar dispositivo, solicitante, motivo, aprovador, prazo e resultado. Não haverá remoção silenciosa nem bloqueio absoluto contra recuperação por TI com acesso físico.</div></section>'+
+function pageAgentSettings(){return head("CONTROLE DO SERVIÇO","Configurações agente","Senhas de instalação e de desinstalação e a proteção do agente nos computadores.")+
+'<div class="settings-grid">'+
 '<section class="card card-pad">'+cardHead("Senha temporária de instalação","Criada pela TI · uso único")+
 '<form id="enrollmentForm" class="form-stack"><div class="field"><label>Senha temporária</label><input name="installationPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required placeholder="Defina uma senha com pelo menos 8 caracteres"><small>Use pelo menos 8 caracteres, incluindo letras e números. A API guarda somente o hash; a senha não poderá ser recuperada depois.</small></div><div class="field"><label>Perfil definido pela TI</label><select name="installMode"><option value="certificate-and-web" selected>Certificados + política de navegação</option><option value="certificate">Somente inventário de certificados</option></select><small>O perfil fica vinculado à senha e é aplicado no primeiro cadastro do computador.</small></div><div class="field"><label>Validade da senha</label><select name="expiresMinutes"><option value="15">15 minutos</option><option value="30">30 minutos</option><option value="60" selected>1 hora</option><option value="240">4 horas</option><option value="1440">24 horas</option><option value="0">Nunca expira</option></select></div><div class="field"><label>Utilização</label><input value="Uso único — um computador" disabled></div><button class="btn btn-primary" type="submit">Criar senha de instalação</button><p id="enrollmentFeedback" class="form-feedback" role="status"></p><small class="cell-sub">Depois de criar, compartilhe a senha diretamente com o técnico que fará a instalação. Ela não aparece novamente no painel.</small></form></section>'+
-'<section class="card card-pad">'+cardHead("Acesso local de suporte","Autenticação administrativa por dispositivo")+
-'<div class="form-stack"><div class="field"><label>Método recomendado</label><input value="Aprovação central + token curto + registro" disabled></div><div class="field"><label>Senha compartilhada</label><input value="Não armazenada em texto puro" disabled></div><p class="cell-sub">Acesso cotidiano aos controles do agente fica bloqueado para usuários comuns. Recuperação de TI será documentada e auditada.</p></div></section></div>'}
+'<section class="card card-pad">'+cardHead("Senha de desinstalação","Exigida pelo DESINSTALAR.cmd em qualquer computador")+
+'<div id="uninstallStatus" class="notice-box">Consultando...</div><br>'+
+'<form id="uninstallPasswordForm" class="form-stack"><div class="field"><label>Nova senha de desinstalação</label><input name="password" type="password" minlength="8" maxlength="128" required autocomplete="new-password" placeholder="Pelo menos 8 caracteres, com letras e números"></div><div class="field"><label>Repita a senha</label><input name="confirm" type="password" minlength="8" maxlength="128" required autocomplete="new-password"></div><button class="btn btn-primary" type="submit">Salvar senha de desinstalação</button><p id="uninstallFeedback" class="form-feedback" role="status"></p><small class="cell-sub">A mesma senha vale para todos os computadores. Ela é guardada só como código (hash) e não pode ser vista depois; para trocar, salve uma nova. Cada tentativa com senha errada gera um alerta crítico, e após 5 erros em 15 minutos o computador fica bloqueado para novas tentativas.</small></form></section>'+
+'<section class="card card-pad">'+cardHead("Proteção ativa nos computadores","Aplicada e reaplicada automaticamente pelo agente")+
+'<div class="switch-row"><div><b>Serviço não pode ser parado nem excluído</b><small>Nem administradores locais conseguem parar, alterar ou excluir o serviço CostalogAgent pelo Windows.</small></div><label class="toggle"><input type="checkbox" checked disabled><span></span></label></div>'+
+'<div class="switch-row"><div><b>Arquivos e configuração protegidos</b><small>Pastas do agente com dono SYSTEM; administradores só leem. A configuração privada só é acessível ao agente.</small></div><label class="toggle"><input type="checkbox" checked disabled><span></span></label></div>'+
+'<div class="switch-row"><div><b>Reinício automático e alerta</b><small>Se o processo for finalizado à força, o Windows o reinicia em 5 segundos e o painel recebe um alerta crítico.</small></div><label class="toggle"><input type="checkbox" checked disabled><span></span></label></div>'+
+'<div class="switch-row"><div><b>Remoção só com autorização</b><small>Somente com a senha de desinstalação (conferida pelo servidor) ou pela ordem "Desinstalar agente" no painel.</small></div><label class="toggle"><input type="checkbox" checked disabled><span></span></label></div>'+
+'<div class="notice-box"><strong>Importante:</strong> um administrador local determinado ainda pode contornar proteções do Windows (por exemplo, tomando posse de arquivos). Para segurança total, retire o privilégio de administrador das contas dos funcionários.</div></section>'+
+'<section class="card card-pad">'+cardHead("Como remover o agente","Sempre com autorização da TI")+
+'<div class="detail-grid"><div class="detail-item"><span>NO COMPUTADOR</span><b>Execute o DESINSTALAR.cmd (vem no instalador) e digite a senha de desinstalação.</b></div><div class="detail-item"><span>PELO PAINEL</span><b>Em Computadores → Ver detalhes → "Desinstalar agente". A remoção acontece na próxima comunicação (até ~1 minuto).</b></div></div></section>'+
+'</div>'}
 function pageSettings(){return head("ADMINISTRAÇÃO","Configurações gerais","Integrações de e-mail, perfis de rede, políticas de privacidade, restrições de hardware/software e parâmetros globais.",demoLabel)+
 '<div class="settings-grid"><section class="card card-pad">'+cardHead("Monitoramento de e-mail","Conectores corporativos autorizados")+
 demo.email.map(m=>'<div class="switch-row"><div><b>'+esc(m.mailbox)+'</b><small>'+esc(m.type)+' · '+esc(m.scope)+' · '+esc(m.last)+'</small></div>'+pill(m.status)+'</div>').join('')+
@@ -435,7 +437,7 @@ demo.email.map(m=>'<div class="switch-row"><div><b>'+esc(m.mailbox)+'</b><small>
 '<section class="card card-pad">'+cardHead("Alertas e destinatários","Notificação de incidentes")+
 '<div class="form-stack"><div class="field"><label>E-mail principal de TI</label><input disabled value="ti@costalog.com.br"></div><div class="field"><label>Alertas críticos</label><input disabled value="Imediatos"></div><div class="field"><label>Resumo operacional</label><input disabled value="Diário"></div></div></section></div>'}
 const pages={"overview":pageOverview,"web-blocking":pageWeb,"certificate-rules":pageCertRules,"devices":pageDevices,"health":pageHealth,"installed-certs":pageCerts,"browsing":pageBrowsing,"audit":pageAudit,"downloads":pageDownloads,"device-detail":pageDeviceDetail,"agent-settings":pageAgentSettings,"settings":pageSettings};
-function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");if(v==="overview")refreshDashboard();if(v==="devices")refreshDevices();if(v==="web-blocking")refreshRules("web");if(v==="downloads")refreshRelease();if(v==="device-detail")refreshDeviceDetail();if(v==="health")refreshHealth();if(v==="installed-certs")refreshCerts();if(v==="audit")refreshAudit();if(v==="browsing")refreshBrowsing();if(v==="certificate-rules")refreshRules("cert");}
+function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");if(v==="overview")refreshDashboard();if(v==="devices")refreshDevices();if(v==="web-blocking")refreshRules("web");if(v==="downloads")refreshRelease();if(v==="device-detail")refreshDeviceDetail();if(v==="health")refreshHealth();if(v==="installed-certs")refreshCerts();if(v==="audit")refreshAudit();if(v==="browsing")refreshBrowsing();if(v==="agent-settings")refreshUninstallStatus();if(v==="certificate-rules")refreshRules("cert");}
 function validHost(h){return /^(?=.{1,253}$)(\*\.)?([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(h.trim())}
 function publishMessage(res,action){
  if(res&&res.policyRevision)return action+" e publicada (política "+res.policyRevision+"). Os computadores recebem em cerca de 1 minuto.";
@@ -477,6 +479,28 @@ async function deleteRule(kind,id){
   toast(publishMessage(saved,"Regra removida"));
   await refreshRules(kind);
  }catch(error){toast(error.message||"Não foi possível remover a regra.")}
+}
+async function refreshUninstallStatus(){
+ const box=$("#uninstallStatus");if(!box)return;
+ try{
+  const r=await fetchJson(apiUrl("/admin/uninstall-password"));
+  box.innerHTML=r.configured?'<strong>Senha definida</strong> em '+esc(formatDeviceDate(r.updatedAt))+'. O DESINSTALAR.cmd já funciona nos computadores.':'<strong>Nenhuma senha definida.</strong> Enquanto não houver senha, o agente só pode ser removido pelo painel.';
+ }catch(e){box.textContent="Falha ao consultar: "+(e.message||"erro")}
+}
+async function saveUninstallPassword(form){
+ const fb=form.querySelector("#uninstallFeedback"),pw=form.elements.password.value,cf=form.elements.confirm.value;
+ if(pw!==cf){fb.textContent="As senhas não são iguais.";return}
+ if(pw.length<8||!/[A-Za-z]/.test(pw)||!/[0-9]/.test(pw)){fb.textContent="Use pelo menos 8 caracteres, com letras e números.";return}
+ const btn=form.querySelector('button[type="submit"]');btn.disabled=true;fb.textContent="Salvando...";
+ try{await fetchJson(apiUrl("/admin/uninstall-password"),{method:"PUT",body:JSON.stringify({password:pw})});form.reset();fb.textContent="Senha de desinstalação salva.";toast("Senha de desinstalação salva.");refreshUninstallStatus()}
+ catch(e){fb.textContent=e.message||"Não foi possível salvar."}
+ finally{btn.disabled=false}
+}
+async function uninstallDevice(){
+ const name=$("#pageTitle").textContent;
+ if(!state.detailId||!confirm("Desinstalar o AGENTE COSTALOG do computador "+name+"?\n\nO bloqueio de sites e o monitoramento deixam de funcionar nele. Para voltar, será preciso instalar de novo."))return;
+ try{const r=await fetchJson(apiUrl("/admin/devices/"+encodeURIComponent(state.detailId)+"/uninstall"),{method:"POST"});toast(r.message||"Desinstalação enviada.")}
+ catch(e){toast(e.message||"Não foi possível enviar a desinstalação.")}
 }
 async function createEnrollment(form){
  const feedback=form.querySelector("#enrollmentFeedback");
@@ -651,6 +675,7 @@ $("#viewRoot").addEventListener("click",e=>{
  const det=e.target.closest("[data-device-detail]");
  if(det){state.detailId=det.dataset.deviceDetail;navigate("device-detail");return}
  if(e.target.closest('[data-action="refresh-detail"]')){refreshDeviceDetail();return}
+ if(e.target.closest('[data-action="uninstall-device"]')){uninstallDevice();return}
  if(e.target.closest('[data-action="refresh-health"]')){refreshHealth();return}
  if(e.target.closest('[data-action="refresh-certs"]')){refreshCerts();return}
  if(e.target.closest('[data-action="refresh-audit"]')){refreshAudit();return}
@@ -681,7 +706,7 @@ $("#viewRoot").addEventListener("change",e=>{
   const grid=$("#deviceGrid");
   if(grid)grid.innerHTML=renderDevices();
  }
-});$("#viewRoot").addEventListener("submit",e=>{if(e.target.id==="webRuleForm"){e.preventDefault();addRule(e.target,"web")}if(e.target.id==="certRuleForm"){e.preventDefault();addRule(e.target,"cert")}if(e.target.id==="enrollmentForm"){e.preventDefault();createEnrollment(e.target)}});
+});$("#viewRoot").addEventListener("submit",e=>{if(e.target.id==="webRuleForm"){e.preventDefault();addRule(e.target,"web")}if(e.target.id==="certRuleForm"){e.preventDefault();addRule(e.target,"cert")}if(e.target.id==="enrollmentForm"){e.preventDefault();createEnrollment(e.target)}if(e.target.id==="uninstallPasswordForm"){e.preventDefault();saveUninstallPassword(e.target)}});
 $("#menuButton").addEventListener("click",()=>$("#sidebar").classList.toggle("open"));
 $("#alertsButton").addEventListener("click",()=>navigate("audit"));
 $("#environmentBadge").addEventListener("click",()=>toast(state.apiReady?"Conectado à API. Os indicadores vêm do banco de dados.":"API não conectada: nenhum dado real está sendo exibido."));

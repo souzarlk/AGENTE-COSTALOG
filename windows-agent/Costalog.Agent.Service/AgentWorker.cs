@@ -35,9 +35,19 @@ public sealed class AgentWorker : BackgroundService
         _http = http;
     }
 
+    DateTimeOffset _lastProtection = DateTimeOffset.MinValue;
+    string? _pendingTamperTitle;
+    string? _pendingTamperMessage;
+    volatile bool _uninstalling;
+
+    string AlivePath => Path.Combine(AgentConfigStore.PrivateRoot, "alive.txt");
+    string CleanExitPath => Path.Combine(AgentConfigStore.PrivateRoot, "clean-exit.txt");
+
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
         _log.LogInformation("AGENTE COSTALOG iniciado.");
+        DetectPreviousTermination();
+        _ = Task.Run(() => WatchLocalRequests(stop), stop);
 
         while (!stop.IsCancellationRequested)
         {
@@ -51,6 +61,10 @@ public sealed class AgentWorker : BackgroundService
 
                 cfg = AgentConfigStore.Load();
 
+                if (_uninstalling)
+                    break;
+
+                await MarkAliveAndProtect(cfg, stop);
                 await Heartbeat(cfg, stop);
                 await SendTelemetry(cfg, stop);
 
@@ -103,6 +117,241 @@ public sealed class AgentWorker : BackgroundService
                 break;
             }
         }
+
+        // Parada normal (desligamento do Windows ou atualização): marca saída limpa.
+        try
+        {
+            File.WriteAllText(CleanExitPath, DateTime.UtcNow.Ticks.ToString());
+        }
+        catch
+        {
+        }
+    }
+
+    // ===== Proteção contra interrupção =====
+    // Se o agente anterior rodou depois do último boot e não saiu de forma limpa,
+    // ele foi encerrado à força; se saiu limpo mas ficou parado mais de 2 minutos
+    // com o Windows ligado, o serviço foi parado manualmente.
+    void DetectPreviousTermination()
+    {
+        try
+        {
+            Directory.CreateDirectory(AgentConfigStore.PrivateRoot);
+            var boot = DateTime.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64);
+            var clean = File.Exists(CleanExitPath);
+
+            if (File.Exists(AlivePath) && long.TryParse(File.ReadAllText(AlivePath).Trim(), out var ticks))
+            {
+                var lastAlive = new DateTime(ticks, DateTimeKind.Utc);
+                var gap = DateTime.UtcNow - lastAlive;
+
+                if (lastAlive > boot.AddMinutes(1))
+                {
+                    if (!clean)
+                    {
+                        _pendingTamperTitle = "Agente encerrado à força";
+                        _pendingTamperMessage = "O serviço do agente foi finalizado sem autorização e reiniciado automaticamente após " + Math.Max(1, (int)gap.TotalMinutes) + " min.";
+                    }
+                    else if (gap > TimeSpan.FromMinutes(2))
+                    {
+                        _pendingTamperTitle = "Agente ficou parado";
+                        _pendingTamperMessage = "O serviço do agente ficou parado por " + (int)gap.TotalMinutes + " min com o computador ligado.";
+                    }
+                }
+            }
+
+            if (clean)
+                File.Delete(CleanExitPath);
+        }
+        catch
+        {
+        }
+    }
+
+    async Task MarkAliveAndProtect(AgentConfig c, CancellationToken ct)
+    {
+        try
+        {
+            File.WriteAllText(AlivePath, DateTime.UtcNow.Ticks.ToString());
+        }
+        catch
+        {
+        }
+
+        if (_pendingTamperTitle is not null && !string.IsNullOrWhiteSpace(c.DeviceTokenProtected))
+        {
+            await ReportEvent(c, "agent_tamper", _pendingTamperTitle, _pendingTamperMessage ?? "", new { }, ct, "critical");
+            _pendingTamperTitle = null;
+        }
+
+        if (DateTimeOffset.UtcNow - _lastProtection > TimeSpan.FromHours(6))
+        {
+            _lastProtection = DateTimeOffset.UtcNow;
+            var errors = await Task.Run(AgentProtection.Apply, ct);
+
+            if (errors.Count > 0)
+                _log.LogWarning("Proteção do agente aplicada parcialmente: {Errors}", string.Join("; ", errors));
+            else
+                _log.LogInformation("Proteção do agente aplicada.");
+        }
+    }
+
+    // ===== Desinstalação com senha (DESINSTALAR.cmd) =====
+    // O técnico digita a senha; o pedido chega em ProgramData\Costalog\Agent\Requests.
+    // A senha é conferida pela API e a remoção só acontece com autorização assinada.
+    async Task WatchLocalRequests(CancellationToken stop)
+    {
+        var requestPath = Path.Combine(AgentProtection.RequestsRoot, "uninstall-request.json");
+
+        while (!stop.IsCancellationRequested && !_uninstalling)
+        {
+            try
+            {
+                if (File.Exists(requestPath))
+                {
+                    string password = "", requestedBy = "";
+
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(File.ReadAllText(requestPath));
+                        password = doc.RootElement.TryGetProperty("password", out var pw) ? pw.GetString() ?? "" : "";
+                        requestedBy = doc.RootElement.TryGetProperty("requestedBy", out var rb) ? rb.GetString() ?? "" : "";
+                    }
+                    finally
+                    {
+                        File.Delete(requestPath);
+                    }
+
+                    await HandleUninstallPassword(password, requestedBy, stop);
+                }
+            }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception e)
+            {
+                WriteUninstallResult("error", "Falha ao processar o pedido: " + e.Message);
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(3), stop);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    async Task HandleUninstallPassword(string password, string requestedBy, CancellationToken ct)
+    {
+        var c = AgentConfigStore.Load();
+
+        if (string.IsNullOrWhiteSpace(c.DeviceTokenProtected))
+        {
+            WriteUninstallResult("error", "O agente ainda não está cadastrado no painel.");
+            return;
+        }
+
+        using var req = Request(c, HttpMethod.Post, "api/v1/device/uninstall-verify", new { password, requestedBy });
+        using var res = await _http.SendAsync(req, ct);
+        var body = await res.Content.ReadAsStringAsync(ct);
+
+        if (!res.IsSuccessStatusCode)
+        {
+            string message;
+
+            try
+            {
+                using var err = JsonDocument.Parse(body);
+                message = err.RootElement.TryGetProperty("message", out var m) ? m.GetString() ?? "Recusado." : "Recusado.";
+            }
+            catch
+            {
+                message = "Recusado pela API (HTTP " + (int)res.StatusCode + ").";
+            }
+
+            WriteUninstallResult("error", message);
+            return;
+        }
+
+        using var doc = JsonDocument.Parse(body);
+        await ExecuteApprovedUninstall(c, doc.RootElement.GetProperty("approval"), ct);
+    }
+
+    static void WriteUninstallResult(string status, string message)
+    {
+        try
+        {
+            var folder = Path.GetDirectoryName(AgentConfigStore.Root)!;
+            File.WriteAllText(
+                Path.Combine(folder, "uninstall-result.json"),
+                JsonSerializer.Serialize(new { status, message, at = DateTime.UtcNow.ToString("O") }));
+        }
+        catch
+        {
+        }
+    }
+
+    // Confere a autorização assinada e remove o agente deste computador.
+    async Task ExecuteApprovedUninstall(AgentConfig c, JsonElement approval, CancellationToken ct)
+    {
+        using var payload = PolicyVerifier.VerifyApproval(approval, c.PolicyPublicKeyPem);
+        var p = payload.RootElement;
+
+        if (p.GetProperty("purpose").GetString() != "agent-uninstall" ||
+            p.GetProperty("deviceId").GetString() != c.DeviceId ||
+            !DateTimeOffset.TryParse(p.GetProperty("expiresAt").GetString(), out var expiry) ||
+            expiry <= DateTimeOffset.UtcNow)
+        {
+            throw new CryptographicException("Autorização de desinstalação inválida ou expirada.");
+        }
+
+        _uninstalling = true;
+        _log.LogWarning("Desinstalação autorizada recebida. Removendo o agente.");
+
+        try
+        {
+            WebBlocker.Apply(Array.Empty<string>());
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            using var req = Request(c, HttpMethod.Post, "api/v1/device/uninstalled", new { });
+            using var res = await _http.SendAsync(req, ct);
+        }
+        catch
+        {
+        }
+
+        WriteUninstallResult("ok", "Autorização confirmada. O AGENTE COSTALOG está sendo removido deste computador.");
+
+        var script = Path.Combine(Path.GetTempPath(), "costalog-uninstall-" + Guid.NewGuid().ToString("N") + ".ps1");
+        File.WriteAllText(script, AgentUpdateScript.Uninstall, new UTF8Encoding(true));
+
+        var programRoot = Path.GetDirectoryName(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)) ?? "";
+        var start = new ProcessStartInfo
+        {
+            FileName = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        foreach (var arg in new[]
+        {
+            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,
+            "-ProgramRoot", programRoot, "-DataRoot", AgentConfigStore.Root
+        })
+        {
+            start.ArgumentList.Add(arg);
+        }
+
+        Process.Start(start)?.Dispose();
     }
 
     static void ValidateApi(string value)
@@ -1007,21 +1256,11 @@ public sealed class AgentWorker : BackgroundService
             );
         }
 
-        Directory.CreateDirectory(AgentConfigStore.PrivateRoot);
-
-        File.WriteAllText(
-            Path.Combine(
-                AgentConfigStore.PrivateRoot,
-                "uninstall-approval.json"
-            ),
-            approval.GetRawText()
-        );
-
         await ReportEvent(
             c,
             "uninstall_authorization_received",
-            "Autorização de remoção recebida",
-            "A equipe de TI autorizou uma remoção temporária.",
+            "Desinstalação pelo painel recebida",
+            "A equipe de TI enviou a ordem de remoção do agente.",
             new
             {
                 requestId = p.GetProperty("requestId").GetString(),
@@ -1029,6 +1268,8 @@ public sealed class AgentWorker : BackgroundService
             },
             ct
         );
+
+        await ExecuteApprovedUninstall(c, approval, ct);
     }
 
     async Task ReportFailure(Exception e, CancellationToken ct)

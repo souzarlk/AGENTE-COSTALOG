@@ -88,6 +88,18 @@ echo.
 pause
 '@
     [IO.File]::WriteAllText((Join-Path $package "INSTALAR.cmd"), $launcher, $utf8)
+    $uninstallLauncher = @'
+@echo off
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  exit /b
+)
+cd /d "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Desinstalar-Agente.ps1"
+'@
+    [IO.File]::WriteAllText((Join-Path $package "DESINSTALAR.cmd"), $uninstallLauncher, $utf8)
+    Copy-Item (Join-Path $PSScriptRoot "Desinstalar-Agente.ps1") $package
     $readme = @"
 AGENTE COSTALOG $Version - instalacao
 
@@ -97,6 +109,8 @@ AGENTE COSTALOG $Version - instalacao
 4. Em cerca de 1 minuto o computador aparece no painel, em Computadores.
 
 O agente roda em segundo plano e se atualiza sozinho.
+Para remover: DESINSTALAR.cmd + senha de desinstalacao definida no painel,
+ou "Desinstalar agente" na tela do computador no painel.
 API configurada neste instalador: $ApiBaseUrl
 "@
     [IO.File]::WriteAllText((Join-Path $package "LEIA-ME.txt"), $readme, $utf8)

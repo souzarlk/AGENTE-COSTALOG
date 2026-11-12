@@ -7,6 +7,7 @@ import {newToken,hashToken,signPolicy,signReleaseApproval} from "../security.js"
 import {requireAdmin,requireAdminWrite} from "../middleware.js";
 import {latestRelease,latestInstaller} from "../agentReleases.js";
 import {certVisibleSql} from "../certFilter.js";
+import {getUninstallPasswordInfo,setUninstallPassword,createUninstallApproval,UNINSTALL_SETTING} from "../uninstall.js";
 
 const router=Router();
 router.use(requireAdmin);
@@ -316,13 +317,33 @@ router.post("/uninstall-requests/:id/review",requireAdminWrite,async(req,res,nex
  });
  }catch(e){next(e)}});
 
+router.get("/uninstall-password",async(req,res,next)=>{try{
+ const i=await getUninstallPasswordInfo();
+ res.json({configured:i.configured,updatedAt:i.updatedAt});
+ }catch(e){next(e)}});
+
+router.put("/uninstall-password",requireAdminWrite,async(req,res,next)=>{try{
+ const x=z.object({password:z.string().min(8).max(128).refine(v=>/[A-Za-z]/.test(v)&&/\d/.test(v),"Use pelo menos 8 caracteres, com letras e números.")}).strict().parse(req.body);
+ await setUninstallPassword(x.password,req.admin.id);
+ await audit(null,"uninstall_password_changed","Senha de desinstalação alterada","",{adminId:req.admin.id});
+ res.json({ok:true});
+ }catch(e){next(e)}});
+
+router.post("/devices/:id/uninstall",requireAdminWrite,async(req,res,next)=>{try{
+ const d=await query("SELECT id,device_name AS deviceName FROM devices WHERE id=? AND status='active'",[req.params.id]);
+ if(!d.rowCount)return res.status(404).json({message:"Computador não encontrado ou já removido."});
+ const a=await createUninstallApproval(req.params.id,"Painel ("+(req.admin.username||"TI")+")","Desinstalação solicitada pelo painel",req.admin.id);
+ await audit(req.params.id,"uninstall_approved","Desinstalação enviada pelo painel",d.rows[0].deviceName,{adminId:req.admin.id,requestId:a.requestId});
+ res.json({ok:true,expiresAt:a.expiresAt,message:"O agente será removido na próxima comunicação do computador (até ~1 minuto)."});
+ }catch(e){next(e)}});
+
 router.get("/settings",async(req,res,next)=>{try{
- const r=await query("SELECT setting_key AS key,setting_value AS value,updated_at AS updatedAt FROM agent_settings ORDER BY setting_key");
+ const r=await query("SELECT setting_key AS key,setting_value AS value,updated_at AS updatedAt FROM agent_settings WHERE setting_key<>? ORDER BY setting_key",[UNINSTALL_SETTING]);
  res.json({items:r.rows});
  }catch(e){next(e)}});
 
 router.put("/settings/:key",requireAdminWrite,async(req,res,next)=>{try{
- const key=z.string().regex(/^[a-z0-9_.-]{2,100}$/).parse(req.params.key);
+ const key=z.string().regex(/^[a-z0-9_.-]{2,100}$/).refine(k=>k!==UNINSTALL_SETTING,"Use a rota própria da senha de desinstalação.").parse(req.params.key);
  const value=z.unknown().parse(req.body.value);
 
  await query("INSERT INTO agent_settings(setting_key,setting_value,updated_by,updated_at) VALUES(?,?,?,NOW(3)) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),updated_by=VALUES(updated_by),updated_at=NOW(3)",[key,JSON.stringify(value),req.admin.id]);

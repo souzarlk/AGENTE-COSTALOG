@@ -6,6 +6,7 @@ import {newToken,hashToken,signPolicy} from "../security.js";
 import {requireDevice} from "../middleware.js";
 import {latestRelease,compareVersions} from "../agentReleases.js";
 import {certIgnored} from "../certFilter.js";
+import {checkUninstallPassword,createUninstallApproval} from "../uninstall.js";
 const router=Router(),uuid=()=>crypto.randomUUID();
 const enrollment=z.object({enrollmentToken:z.string().min(8).max(200),deviceName:z.string().trim().min(1).max(120),windowsUsername:z.string().max(120).default(""),domainName:z.string().max(160).default(""),osCaption:z.string().max(160).default(""),osVersion:z.string().max(80).default(""),osBuild:z.string().max(80).default(""),manufacturer:z.string().max(120).default(""),model:z.string().max(160).default(""),cpuName:z.string().max(180).default(""),ramTotalBytes:z.number().int().min(0).default(0),agentVersion:z.string().max(40).default(""),installMode:z.enum(["certificate","certificate-and-web"]),bootAt:z.string().datetime().optional()}).strict();
 router.post("/enroll",async(req,res,next)=>{try{
@@ -125,6 +126,30 @@ router.post("/uninstall-request",async(req,res,next)=>{try{
  await query("INSERT INTO device_events(id,device_id,event_type,severity,title,message,details) VALUES(?,?,?,'critical',?,?,?)",[uuid(),req.device.id,"uninstall_requested","Solicitação de remoção do agente",x.reason,JSON.stringify({requestId:id,requestedBy:x.requestedBy})]);
  res.status(202).json({requestId:id,status:"pending",message:"A solicitação foi enviada à TI. O agente permanece instalado até a aprovação central."});
  }catch(e){next(e)}});
+// Desinstalação local: o técnico digita a senha definida no painel (DESINSTALAR.cmd).
+router.post("/uninstall-verify",async(req,res,next)=>{try{
+ const x=z.object({password:z.string().min(1).max(200),requestedBy:z.string().max(160).default("")}).strict().parse(req.body);
+ const recent=await query("SELECT COUNT(*) AS total FROM device_events WHERE device_id=? AND event_type='uninstall_password_wrong' AND created_at>NOW(3)-INTERVAL 15 MINUTE",[req.device.id]);
+ if(Number(recent.rows[0].total)>=5)return res.status(429).json({message:"Muitas tentativas com senha incorreta. Aguarde 15 minutos."});
+ const check=await checkUninstallPassword(x.password);
+ if(!check.configured)return res.status(409).json({message:"A senha de desinstalação ainda não foi definida no painel."});
+ if(!check.ok){
+  await query("INSERT INTO device_events(id,device_id,event_type,severity,title,message,details) VALUES(?,?,?,'critical',?,?,?)",[uuid(),req.device.id,"uninstall_password_wrong","Tentativa de desinstalação com senha incorreta",x.requestedBy||req.device.deviceName,JSON.stringify({requestedBy:x.requestedBy})]);
+  return res.status(403).json({message:"Senha de desinstalação incorreta."});
+ }
+ const a=await createUninstallApproval(req.device.id,x.requestedBy||"Senha local","Desinstalação com senha no computador",null,true);
+ await query("INSERT INTO device_events(id,device_id,event_type,severity,title,message,details) VALUES(?,?,?,'warning',?,?,?)",[uuid(),req.device.id,"uninstall_password_ok","Desinstalação autorizada por senha",x.requestedBy||req.device.deviceName,JSON.stringify({requestId:a.requestId})]);
+ res.json({approval:a.signed});
+ }catch(e){next(e)}});
+
+// O agente avisa que está sendo removido; o computador fica como "removido" no painel.
+router.post("/uninstalled",async(req,res,next)=>{try{
+ await query("UPDATE devices SET status='revoked',updated_at=NOW(3) WHERE id=?",[req.device.id]);
+ await query("INSERT INTO device_events(id,device_id,event_type,severity,title,message,details) VALUES(?,?,?,'critical',?,?,?)",[uuid(),req.device.id,"agent_uninstalled","Agente removido do computador",req.device.deviceName,"{}"]);
+ res.json({ok:true});
+ }catch(e){next(e)}});
+
+// Alerta de proteção enviado pelo agente (ex.: encerrado à força).
 router.get("/uninstall-approval",async(req,res,next)=>{try{
  const r=await query("SELECT id,release_payload AS releasePayload FROM uninstall_requests WHERE device_id=? AND status='approved' AND delivered_at IS NULL AND release_expires_at>NOW(3) ORDER BY reviewed_at LIMIT 1",[req.device.id]);
  if(!r.rowCount)return res.status(204).end();

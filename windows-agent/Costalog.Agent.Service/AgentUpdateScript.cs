@@ -50,4 +50,24 @@ catch {
     try { Start-Service CostalogAgent } catch { Write-Log ("Falha ao iniciar servico: " + $_.Exception.Message) }
 }
 """;
+
+    // Remoção autorizada: para e exclui o serviço e apaga as pastas do agente.
+    public const string Uninstall = """
+param(
+    [string]$ProgramRoot,
+    [string]$DataRoot
+)
+$ErrorActionPreference = "Continue"
+Start-Sleep -Seconds 5
+Stop-Service CostalogAgent -Force -ErrorAction SilentlyContinue
+$deadline = (Get-Date).AddSeconds(60)
+while ((Get-Service CostalogAgent -ErrorAction SilentlyContinue).Status -eq "Running" -and (Get-Date) -lt $deadline) {
+    Start-Sleep -Seconds 1
+}
+& sc.exe delete CostalogAgent | Out-Null
+Start-Sleep -Seconds 2
+if ($ProgramRoot -and (Test-Path $ProgramRoot)) { Remove-Item $ProgramRoot -Recurse -Force -ErrorAction SilentlyContinue }
+if ($DataRoot -and (Test-Path $DataRoot)) { Remove-Item $DataRoot -Recurse -Force -ErrorAction SilentlyContinue }
+Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+""";
 }
