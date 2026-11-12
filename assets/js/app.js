@@ -251,7 +251,7 @@ function disksTable(list,withDevice){
 function certTable(list,withDevice){
  if(!list.length)return '<div class="empty-state">Nenhum certificado encontrado.</div>';
  return '<div class="table-wrap"><table><thead><tr>'+(withDevice?'<th>COMPUTADOR</th>':'')+'<th>CERTIFICADO</th><th>EMISSOR</th><th>VÁLIDO ATÉ</th><th>REPOSITÓRIO</th><th>CHAVE PRIVADA</th><th>SITUAÇÃO</th></tr></thead><tbody>'+
- list.map(c=>{const st=certState(c.notAfter);return '<tr>'+(withDevice?'<td>'+esc(c.deviceName||"")+'</td>':'')+'<td><span class="cell-main">'+esc(certName(c.subjectName))+'</span><span class="cell-sub">'+esc(c.subjectName)+'</span></td><td>'+esc(certName(c.issuerName))+'</td><td>'+esc(c.notAfter?new Date(c.notAfter).toLocaleDateString("pt-BR"):"—")+'</td><td>'+esc(c.storeName)+'</td><td>'+(c.hasPrivateKey?"Sim":"Não")+'</td><td><span class="status-pill '+st[1]+'">'+esc(st[0])+'</span></td></tr>'}).join('')+'</tbody></table></div>';
+ list.map(c=>{const st=certState(c.notAfter);return '<tr>'+(withDevice?'<td>'+esc(c.deviceName||"")+'</td>':'')+'<td><span class="cell-main">'+esc(certName(c.subjectName))+'</span><span class="cell-sub" title="'+esc(c.subjectName)+'">'+esc(String(c.subjectName||"").length>90?String(c.subjectName).slice(0,90)+"…":c.subjectName)+'</span></td><td>'+esc(certName(c.issuerName))+'</td><td>'+esc(c.notAfter?new Date(c.notAfter).toLocaleDateString("pt-BR"):"—")+'</td><td>'+esc(c.storeName)+'</td><td>'+(c.hasPrivateKey?"Sim":"Não")+'</td><td><span class="status-pill '+st[1]+'">'+esc(st[0])+'</span></td></tr>'}).join('')+'</tbody></table></div>';
 }
 function pageDeviceDetail(){return head("COMPUTADORES","Detalhes do computador","Informações recebidas do agente instalado neste computador.",'<button class="btn btn-secondary btn-small" data-nav="devices">← Voltar</button> <button class="btn btn-secondary btn-small" data-action="refresh-detail">↻ Atualizar</button>')+'<div id="deviceDetail"><div class="empty-state">Carregando...</div></div>'}
 async function refreshDeviceDetail(){
@@ -289,16 +289,36 @@ async function refreshHealth(){
  }catch(e){box.innerHTML=failBox(e)}
 }
 function pageCerts(){return head("INVENTÁRIO LOCAL","Certificados presentes na máquina","Metadados públicos dos certificados instalados em cada computador.",'<button class="btn btn-secondary btn-small" data-action="refresh-certs">↻ Atualizar</button>')+
- '<div class="notice-box"><strong>Proteção de certificados:</strong> somente metadados públicos são enviados. Chaves privadas, senhas e arquivos PFX/P12 nunca são coletados. O agente envia o inventário ao iniciar e a cada 12 horas.</div><br><div id="certsRoot"><div class="empty-state">Carregando...</div></div>'}
+ '<div class="notice-box"><strong>Proteção de certificados:</strong> somente metadados públicos são enviados. Chaves privadas, senhas e arquivos PFX/P12 nunca são coletados. O agente envia o inventário ao iniciar e a cada 1 hora.</div><br><div id="certsRoot"><div class="empty-state">Carregando...</div></div>'}
 async function refreshCerts(){
  const box=$("#certsRoot");if(!box)return;
  try{
   const r=await fetchJson(apiUrl("/admin/certificates"));
   if(state.view!=="installed-certs")return;
-  const list=r.items||[],exp=list.filter(c=>certState(c.notAfter)[0]==="Expirado").length,soon=list.filter(c=>/^Vence/.test(certState(c.notAfter)[0])).length,keys=list.filter(c=>c.hasPrivateKey).length;
-  box.innerHTML='<div class="metric-grid">'+metric("CERTIFICADOS",String(list.length),"Em todos os computadores","CE")+metric("COM CHAVE PRIVADA",String(keys),"Podem assinar / autenticar","KEY")+metric("VENCENDO EM 30 DIAS",String(soon),"Renovar em breve","!")+metric("EXPIRADOS",String(exp),"Sem validade","X")+'</div>'+
-   '<section class="card data-card">'+cardHead("Certificados detectados","Agrupados por computador")+certTable(list,true)+'</section>';
+  state.certs=r.items||[];
+  const list=state.certs,exp=list.filter(c=>certState(c.notAfter)[0]==="Expirado").length,soon=list.filter(c=>/^Vence/.test(certState(c.notAfter)[0])).length,keys=list.filter(c=>c.hasPrivateKey).length;
+  const pcs=new Set(list.map(c=>c.deviceId)).size;
+  box.innerHTML='<div class="metric-grid">'+metric("CERTIFICADOS",String(list.length),"Em "+pcs+" computador(es)","CE")+metric("COM CHAVE PRIVADA",String(keys),"Podem assinar / autenticar","KEY")+metric("VENCENDO EM 30 DIAS",String(soon),"Renovar em breve","!")+metric("EXPIRADOS",String(exp),"Sem validade","X")+'</div>'+
+   '<div class="toolbar"><input class="search-input" id="certSearch" placeholder="Pesquisar computador, usuário ou certificado" value="'+esc(state.certQuery||"")+'"></div>'+
+   '<section class="card data-card">'+cardHead("Certificados por computador","Clique em um computador para ver os certificados instalados nele")+'<div id="certGroups">'+renderCertGroups()+'</div></section>';
  }catch(e){box.innerHTML=failBox(e)}
+}
+function renderCertGroups(){
+ const q=String(state.certQuery||"").trim().toLowerCase();
+ const groups=new Map();
+ for(const c of state.certs||[]){
+  if(!groups.has(c.deviceId))groups.set(c.deviceId,{id:c.deviceId,name:c.deviceName,user:c.username,items:[]});
+  groups.get(c.deviceId).items.push(c);
+ }
+ const list=[...groups.values()].filter(g=>!q||[g.name,g.user,...g.items.map(c=>c.subjectName+" "+c.storeName)].join(" ").toLowerCase().includes(q));
+ if(!list.length)return '<div class="empty-state">'+(q?"Nenhum computador ou certificado encontrado para esta pesquisa.":"Nenhum certificado recebido.")+'</div>';
+ return list.map(g=>{
+  const states=g.items.map(c=>certState(c.notAfter)[0]);
+  const exp=states.filter(x=>x==="Expirado").length,soon=states.filter(x=>/^Vence/.test(x)).length,keys=g.items.filter(c=>c.hasPrivateKey).length;
+  return '<details class="cert-group"'+(q?' open':'')+'><summary><span class="device-avatar">PC</span><span><span class="cell-main">'+esc(g.name)+'</span><span class="cell-sub">'+esc(g.user||"")+'</span></span>'+
+   '<span class="status-pill pill-gray">'+g.items.length+' certificado(s)</span>'+(keys?'<span class="status-pill pill-green">'+keys+' com chave privada</span>':'')+(soon?'<span class="status-pill pill-amber">'+soon+' vencendo</span>':'')+(exp?'<span class="status-pill pill-red">'+exp+' expirado(s)</span>':'')+
+   '<span class="cert-chev">›</span></summary><div class="cert-group-body">'+certTable(g.items,false)+'<div class="cert-group-foot">'+deviceLink(g.id,"Abrir detalhes do computador →")+'</div></div></details>';
+ }).join("");
 }function pageBrowsing(){
  return head("VISIBILIDADE DE NAVEGACAO","Atividade de navegacao","Registro de dominios, horarios, dispositivos e decisoes das politicas.")+
  '<div class="notice-box"><strong>Privacidade e transparencia:</strong> o monitoramento deve ser informado aos usuarios e limitado a finalidade corporativa. Nao coletamos conteudo de paginas, formularios, senhas ou cookies.</div><br>'+
@@ -585,6 +605,7 @@ $("#viewRoot").addEventListener("click",e=>{
  if(e.target.closest('[data-action="refresh"]')){refreshDashboard();return}
 });
 $("#viewRoot").addEventListener("input",e=>{
+ if(e.target.id==="certSearch"){state.certQuery=e.target.value;const g=$("#certGroups");if(g)g.innerHTML=renderCertGroups();return}
  if(e.target.id==="deviceSearch"){
   state.deviceQuery=e.target.value;
   const grid=$("#deviceGrid");

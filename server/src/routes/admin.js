@@ -156,7 +156,7 @@ router.get("/browsing-events",async(req,res,next)=>{try{
  }catch(e){next(e)}});
 
 router.get("/certificates",async(req,res,next)=>{try{
- const r=await query("SELECT c.id,c.subject_name AS subjectName,c.issuer_name AS issuerName,c.serial_number AS serialNumber,c.thumbprint_sha1 AS thumbprintSha1,c.thumbprint_sha256 AS thumbprintSha256,c.not_before AS notBefore,c.not_after AS notAfter,c.store_name AS storeName,c.has_private_key AS hasPrivateKey,c.observed_at AS observedAt,d.device_name AS deviceName FROM installed_certificates c JOIN devices d ON d.id=c.device_id ORDER BY c.not_after");
+ const r=await query("SELECT c.id,c.subject_name AS subjectName,c.issuer_name AS issuerName,c.serial_number AS serialNumber,c.thumbprint_sha1 AS thumbprintSha1,c.thumbprint_sha256 AS thumbprintSha256,c.not_before AS notBefore,c.not_after AS notAfter,c.store_name AS storeName,c.has_private_key AS hasPrivateKey,c.observed_at AS observedAt,c.device_id AS deviceId,d.device_name AS deviceName,d.windows_username AS username FROM installed_certificates c JOIN devices d ON d.id=c.device_id ORDER BY d.device_name,c.not_after");
  res.json({items:r.rows});
  }catch(e){next(e)}});
 
