@@ -233,20 +233,20 @@ try
 
     await SetAcl(
         installRoot,
-        "SYSTEM:(OI)(CI)F",
-        "Administrators:(OI)(CI)F",
-        "Users:(OI)(CI)RX");
+        "*S-1-5-18:(OI)(CI)F",
+        "*S-1-5-32-544:(OI)(CI)F",
+        "*S-1-5-32-545:(OI)(CI)RX");
 
     await SetAcl(
         privateRoot,
-        "SYSTEM:(OI)(CI)F",
-        "Administrators:(OI)(CI)F");
+        "*S-1-5-18:(OI)(CI)F",
+        "*S-1-5-32-544:(OI)(CI)F");
 
     await SetAcl(
         publicRoot,
-        "SYSTEM:(OI)(CI)F",
-        "Administrators:(OI)(CI)F",
-        "Users:(OI)(CI)RX");
+        "*S-1-5-18:(OI)(CI)F",
+        "*S-1-5-32-544:(OI)(CI)F",
+        "*S-1-5-32-545:(OI)(CI)RX");
 
     Console.WriteLine("Registrando serviço do Windows...");
 
@@ -302,7 +302,21 @@ catch (Exception ex)
     Console.Error.WriteLine();
     Console.Error.WriteLine("ERRO DURANTE A INSTALAÇÃO:");
     Console.Error.WriteLine(ex.Message);
-    Console.Error.WriteLine("A instalação pode ter ficado incompleta. Não execute novamente sem verificar o estado do serviço.");
+    Console.Error.WriteLine("Desfazendo a instalação incompleta...");
+
+    try
+    {
+        await RunCommand("sc.exe", ["stop", ServiceName], allowFailure: true);
+        await RunCommand("sc.exe", ["delete", ServiceName], allowFailure: true);
+        if (Directory.Exists(installRoot)) Directory.Delete(installRoot, true);
+        if (Directory.Exists(dataRoot)) Directory.Delete(dataRoot, true);
+        Console.Error.WriteLine("Instalação desfeita. Corrija o problema e execute o instalador novamente.");
+    }
+    catch (Exception cleanupError)
+    {
+        Console.Error.WriteLine("Não foi possível desfazer tudo automaticamente: " + cleanupError.Message);
+    }
+
     return 1;
 }
 
