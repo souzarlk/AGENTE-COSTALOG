@@ -138,11 +138,11 @@ function ruleList(kind){
  if(!rs.items.length)return '<div class="empty-state">Nenhuma regra cadastrada no servidor.</div>';
  return '<div class="table-wrap"><table><thead><tr><th>NOME DA REGRA</th><th>DOMÍNIO</th><th>APLICAÇÃO</th><th>STATUS</th><th>CONTROLE</th></tr></thead><tbody>'+rs.items.map(r=>'<tr><td><span class="cell-main">'+esc(r.name)+'</span><span class="cell-sub">'+esc(r.kind)+'</span></td><td>'+esc(r.host)+'</td><td>'+esc(r.scope)+'</td><td>'+pill(r.enabled?"Ativo":"Desativado")+'</td><td><button class="action-link" data-toggle-rule="'+kind+'" data-id="'+esc(r.id)+'">'+(r.enabled?"Desativar":"Ativar")+'</button> <button class="action-link danger" data-delete-rule="'+kind+'" data-id="'+esc(r.id)+'">Remover</button></td></tr>').join('')+'</tbody></table></div>';
 }
-function pageWeb(){return head("POLÍTICAS DE NAVEGAÇÃO","Bloqueio de sites","Crie regras por domínio, grupo de computadores ou dispositivo. A implementação real dependerá da extensão gerenciada e de política de rede.",'<span class="status-pill pill-gray">SALVO NO SERVIDOR · NÃO PUBLICADO</span>')+
-'<div class="rule-info"><strong>Negar por padrão ou lista de bloqueio:</strong> defina o perfil corporativo em Configurações gerais. Regras de exceção sempre precisam de aprovação da TI. As regras ficam salvas no servidor, mas só chegam aos computadores quando uma política for publicada. O bloqueio efetivo ainda depende do agente e da extensão gerenciada.</div>'+
+function pageWeb(){return head("POLÍTICAS DE NAVEGAÇÃO","Bloqueio de sites","Inclua os sites que devem ser bloqueados em todos os computadores. O restante da navegação continua liberado.",'<span class="status-pill pill-green">PUBLICAÇÃO AUTOMÁTICA</span>')+
+'<div class="rule-info"><strong>Como funciona:</strong> ao salvar, ativar, desativar ou remover uma regra, a política é publicada automaticamente e os computadores ligados recebem a mudança em cerca de 1 minuto. O bloqueio vale para o domínio e seus subdomínios no Chrome, Edge, Brave e Firefox (o Firefox aplica ao ser reiniciado) e também pelo arquivo hosts do Windows. Use "Permitir exceção" para liberar um subdomínio de um site bloqueado.</div>'+
 '<section class="card card-pad">'+cardHead("Nova regra de navegação","Adicione domínio e ação")+
 '<form id="webRuleForm" class="rule-form"><div class="field"><label>Nome da regra</label><input name="name" required maxlength="90" placeholder="Ex.: Jogos online"></div><div class="field"><label>Domínio (hostname)</label><input name="host" required maxlength="253" placeholder="exemplo.com.br"></div><div class="field"><label>Ação</label><select name="kind"><option value="block">Bloquear site</option><option value="allow">Permitir exceção</option></select></div><button class="btn btn-primary" type="submit">＋ Adicionar regra</button></form>'+cardHead("Regras cadastradas","Políticas de navegação")+'<div id="webRuleList">'+ruleList("web")+'</div></section>'}
-function pageCertRules(){return head("POLÍTICA DE CERTIFICADOS","Sites para certificados","Determine em quais domínios o uso de certificados digitais pode ser autorizado, separado do controle geral de navegação.",'<span class="status-pill pill-gray">SALVO NO SERVIDOR · NÃO PUBLICADO</span>')+
+function pageCertRules(){return head("POLÍTICA DE CERTIFICADOS","Sites para certificados","Determine em quais domínios o uso de certificados digitais pode ser autorizado, separado do controle geral de navegação.",'<span class="status-pill pill-amber">PUBLICADO · APLICAÇÃO EM DESENVOLVIMENTO</span>')+
 '<div class="notice-box"><strong>Importante:</strong> esta lista define a política desejada. O bloqueio efetivo do uso da chave privada exige integração com o provedor criptográfico do Windows (CNG/KSP) e teste por portal. A extensão do navegador, sozinha, não controla todas as chamadas nativas.</div><br>'+
 '<section class="card card-pad">'+cardHead("Adicionar destino autorizado","Domínio permitido no contexto de uso de certificado")+
 '<form id="certRuleForm" class="rule-form"><div class="field"><label>Nome</label><input name="name" required maxlength="90" placeholder="Portal fiscal"></div><div class="field"><label>Domínio</label><input name="host" required maxlength="253" placeholder="portal.exemplo.gov.br"></div><div class="field"><label>Grupo de certificados</label><select name="scope"><option value="e-cnpj">Certificados e-CNPJ</option><option value="fiscal">Certificados fiscais</option><option value="managed" selected>Todos os certificados gerenciados</option><option value="custom">Grupo específico</option></select></div><button class="btn btn-primary" type="submit">＋ Autorizar domínio</button></form>'+cardHead("Lista de autorização","Destinos com uso permitido")+'<div id="certRuleList">'+ruleList("cert")+'</div></section>'}
@@ -187,6 +187,7 @@ function renderDevices(){
    '<div><span>ULTIMO CONTATO</span><b>'+esc(formatDeviceDate(d.lastSeenAt))+'</b></div>'+
    '<div><span>IP</span><b>'+esc(d.lastIp||"Nao informado")+'</b></div>'+
    '<div><span>VERSAO DO AGENTE</span><b>'+esc(d.agentVersion||"Nao informado")+'</b></div>'+
+   '<div><span>POLÍTICA APLICADA</span><b>'+(Number(d.policyRevision)>0?"Revisão "+esc(d.policyRevision):"Nenhuma ainda")+'</b></div>'+
    '</div><div class="device-card-foot"><span>Status: '+esc(label)+'</span></div></article>';
  }).join("");
 }
@@ -309,6 +310,11 @@ demo.email.map(m=>'<div class="switch-row"><div><b>'+esc(m.mailbox)+'</b><small>
 const pages={"overview":pageOverview,"web-blocking":pageWeb,"certificate-rules":pageCertRules,"devices":pageDevices,"health":pageHealth,"installed-certs":pageCerts,"browsing":pageBrowsing,"audit":pageAudit,"downloads":pageDownloads,"agent-settings":pageAgentSettings,"settings":pageSettings};
 function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");if(v==="overview")refreshDashboard();if(v==="devices")refreshDevices();if(v==="web-blocking")refreshRules("web");if(v==="certificate-rules")refreshRules("cert");}
 function validHost(h){return /^(?=.{1,253}$)(\*\.)?([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(h.trim())}
+function publishMessage(res,action){
+ if(res&&res.policyRevision)return action+" e publicada (política "+res.policyRevision+"). Os computadores recebem em cerca de 1 minuto.";
+ if(res&&res.policyError)return res.policyError;
+ return action+".";
+}
 async function addRule(form,kind){
  const data=Object.fromEntries(new FormData(form));
  const host=String(data.host||"").trim().toLowerCase().replace(/^https?:\/\//,"").replace(/\/.*$/,"");
@@ -320,9 +326,9 @@ async function addRule(form,kind){
  const button=form.querySelector('button[type="submit"]');
  if(button)button.disabled=true;
  try{
-  await fetchJson(apiUrl(ruleApi[kind]),{method:"POST",body:JSON.stringify(body)});
+  const saved=await fetchJson(apiUrl(ruleApi[kind]),{method:"POST",body:JSON.stringify(body)});
   form.reset();
-  toast("Regra salva no servidor. Ela só chega aos computadores após a publicação da política.");
+  toast(publishMessage(saved,"Regra salva"));
   await refreshRules(kind);
  }catch(error){toast(error.message||"Não foi possível salvar a regra.")}
  finally{if(button)button.disabled=false}
@@ -331,8 +337,8 @@ async function toggleRule(kind,id){
  const r=ruleState[kind].items.find(x=>x.id===id);
  if(!r)return;
  try{
-  await fetchJson(apiUrl(ruleApi[kind]+"/"+encodeURIComponent(id)),{method:"PATCH",body:JSON.stringify({enabled:!r.enabled})});
-  toast(r.enabled?"Regra desativada no servidor.":"Regra ativada no servidor.");
+  const saved=await fetchJson(apiUrl(ruleApi[kind]+"/"+encodeURIComponent(id)),{method:"PATCH",body:JSON.stringify({enabled:!r.enabled})});
+  toast(publishMessage(saved,r.enabled?"Regra desativada":"Regra ativada"));
   await refreshRules(kind);
  }catch(error){toast(error.message||"Não foi possível alterar a regra.")}
 }
@@ -340,8 +346,8 @@ async function deleteRule(kind,id){
  const r=ruleState[kind].items.find(x=>x.id===id);
  if(!r||!confirm("Remover a regra \""+r.name+"\" do servidor?"))return;
  try{
-  await fetchJson(apiUrl(ruleApi[kind]+"/"+encodeURIComponent(id)),{method:"DELETE"});
-  toast("Regra removida do servidor.");
+  const saved=await fetchJson(apiUrl(ruleApi[kind]+"/"+encodeURIComponent(id)),{method:"DELETE"});
+  toast(publishMessage(saved,"Regra removida"));
   await refreshRules(kind);
  }catch(error){toast(error.message||"Não foi possível remover a regra.")}
 }

@@ -73,21 +73,21 @@ router.post("/web-rules",requireAdminWrite,async(req,res,next)=>{try{
  const id=uuid();
  await query("INSERT INTO web_rules(id,name,hostname,action,scope_type,scope_value,enabled,created_by) VALUES(?,?,?,?,?,?,?,?)",[id,x.name,x.hostname,x.action,x.scopeType,x.scopeValue,x.enabled,req.admin.id]);
  await audit(null,"web_rule_created","Regra de navegação cadastrada",x.hostname,{adminId:req.admin.id,ruleId:id});
- res.status(201).json({id,...x});
+ res.status(201).json({id,...x,...await autoPublish(req.admin.id)});
  }catch(e){next(e)}});
 
 router.patch("/web-rules/:id",requireAdminWrite,async(req,res,next)=>{try{
  const x=z.object({enabled:z.boolean()}).strict().parse(req.body);
  const r=await query("UPDATE web_rules SET enabled=?,updated_at=NOW(3) WHERE id=?",[x.enabled,req.params.id]);
  if(!r.rowCount)return res.status(404).json({message:"Regra não encontrada."});
- res.json({ok:true});
+ res.json({ok:true,...await autoPublish(req.admin.id)});
  }catch(e){next(e)}});
 
 router.delete("/web-rules/:id",requireAdminWrite,async(req,res,next)=>{try{
  const r=await query("DELETE FROM web_rules WHERE id=?",[req.params.id]);
  if(!r.rowCount)return res.status(404).json({message:"Regra não encontrada."});
  await audit(null,"web_rule_deleted","Regra de navegação removida","",{adminId:req.admin.id,ruleId:req.params.id});
- res.status(204).end();
+ res.json({ok:true,...await autoPublish(req.admin.id)});
  }catch(e){next(e)}});
 
 router.get("/certificate-rules",async(req,res,next)=>{try{
@@ -100,20 +100,20 @@ router.post("/certificate-rules",requireAdminWrite,async(req,res,next)=>{try{
  const id=uuid();
  await query("INSERT INTO certificate_site_rules(id,name,hostname,certificate_scope,enabled,created_by) VALUES(?,?,?,?,?,?)",[id,x.name,x.hostname,x.certificateScope,x.enabled,req.admin.id]);
  await audit(null,"certificate_rule_created","Regra de site para certificado criada",x.hostname,{adminId:req.admin.id,ruleId:id});
- res.status(201).json({id,...x});
+ res.status(201).json({id,...x,...await autoPublish(req.admin.id)});
  }catch(e){next(e)}});
 
 router.patch("/certificate-rules/:id",requireAdminWrite,async(req,res,next)=>{try{
  const x=z.object({enabled:z.boolean()}).strict().parse(req.body);
  const r=await query("UPDATE certificate_site_rules SET enabled=?,updated_at=NOW(3) WHERE id=?",[x.enabled,req.params.id]);
  if(!r.rowCount)return res.status(404).json({message:"Regra não encontrada."});
- res.json({ok:true});
+ res.json({ok:true,...await autoPublish(req.admin.id)});
  }catch(e){next(e)}});
 
 router.delete("/certificate-rules/:id",requireAdminWrite,async(req,res,next)=>{try{
  const r=await query("DELETE FROM certificate_site_rules WHERE id=?",[req.params.id]);
  if(!r.rowCount)return res.status(404).json({message:"Regra não encontrada."});
- res.status(204).end();
+ res.json({ok:true,...await autoPublish(req.admin.id)});
  }catch(e){next(e)}});
 
 router.get("/events",async(req,res,next)=>{try{
@@ -157,10 +157,12 @@ router.post("/enrollment-tokens",requireAdminWrite,async(req,res,next)=>{try{
 
 router.get("/policy",async(req,res,next)=>{try{
  const r=await query("SELECT revision,status,payload,signature,published_at AS publishedAt FROM policies WHERE status='published' ORDER BY revision DESC LIMIT 1");
- res.json(r.rows[0]||{revision:0,status:"draft",payload:{mode:"deny-by-default",webRules:[],certificateRules:[]}});
+ res.json(r.rows[0]||{revision:0,status:"draft",payload:{mode:"managed",webRules:[],certificateRules:[]}});
  }catch(e){next(e)}});
 
-router.post("/policy/publish",requireAdminWrite,async(req,res,next)=>{try{
+// Publica uma nova revisão assinada da política com as regras ativas.
+// Os agentes consultam a API a cada ~45 s e aplicam a revisão mais recente.
+async function publishPolicy(adminId){
  const result=await transaction(async tx=>{
   await tx.query("SELECT id FROM agent_policy_lock WHERE id=1 FOR UPDATE");
 
@@ -174,21 +176,20 @@ router.post("/policy/publish",requireAdminWrite,async(req,res,next)=>{try{
    revision:Number(rev.rows[0].revision),
    issuedAt:new Date().toISOString(),
    mode:"managed",
-   defaults:{web:"deny",certificate:"deny"},
+   // Navegação: tudo liberado, exceto a lista de bloqueio.
+   // Certificados: somente os sites autorizados (aplicação técnica ainda em desenvolvimento).
+   defaults:{web:"allow",certificate:"deny"},
    webRules:w.rows,
    certificateRules:c.rows,
    allowedDestinations:w.rows.filter(rule=>rule.action==="allow").map(rule=>rule.hostname),
    deviceControls:{
-    blockUnauthorizedSoftware:true,
-    usbStorage:"block-by-default",
-    wallpaper:"managed",
     uninstallRequiresApproval:true
    }
   };
 
   const signed=signPolicy(payload);
 
-  await tx.query("INSERT INTO policies(revision,status,payload,signature,created_by) VALUES(?,'published',?,?,?)",[payload.revision,JSON.stringify(payload),signed.signature,req.admin.id]);
+  await tx.query("INSERT INTO policies(revision,status,payload,signature,created_by) VALUES(?,'published',?,?,?)",[payload.revision,JSON.stringify(payload),signed.signature,adminId]);
 
   return{
    revision:payload.revision,
@@ -198,8 +199,18 @@ router.post("/policy/publish",requireAdminWrite,async(req,res,next)=>{try{
   };
  });
 
- await audit(null,"policy_published","Política corporativa publicada","",{adminId:req.admin.id,...result});
+ await audit(null,"policy_published","Política corporativa publicada","Revisão "+result.revision,{adminId,...result});
+ return result;
+}
 
+// Publica após alterar regras sem impedir o salvamento da regra se a assinatura falhar.
+async function autoPublish(adminId){
+ try{const p=await publishPolicy(adminId);return{policyRevision:p.revision}}
+ catch(e){console.error("AGENTE COSTALOG publicação automática falhou:",e.message);return{policyError:"Regra salva, mas a política não foi publicada: "+e.message}}
+}
+
+router.post("/policy/publish",requireAdminWrite,async(req,res,next)=>{try{
+ const result=await publishPolicy(req.admin.id);
  res.json({...result,status:"published"});
  }catch(e){next(e)}});
 

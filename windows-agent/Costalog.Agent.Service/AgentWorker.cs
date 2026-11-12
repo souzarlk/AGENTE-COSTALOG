@@ -416,6 +416,56 @@ public sealed class AgentWorker : BackgroundService
             webRules.Length,
             certificateRules.Length
         );
+
+        await ApplyWebBlocking(c, rev, webRules, ct);
+    }
+
+    async Task ApplyWebBlocking(
+        AgentConfig c,
+        int revision,
+        WebPolicyRule[] webRules,
+        CancellationToken ct)
+    {
+        // Perfil "certificate" é somente inventário: nenhum bloqueio de navegação.
+        var exceptions = new HashSet<string>(
+            webRules.Where(r => r.Action == "allow").Select(r => r.Hostname),
+            StringComparer.OrdinalIgnoreCase);
+
+        var blocked = c.InstallMode == "certificate-and-web"
+            ? webRules
+                .Where(r => r.Action == "block" && r.ScopeType == "all" && !exceptions.Contains(r.Hostname))
+                .Select(r => r.Hostname)
+                .ToArray()
+            : Array.Empty<string>();
+
+        var result = WebBlocker.Apply(blocked);
+
+        if (result.Error is not null)
+            _log.LogWarning("Falha ao aplicar bloqueio de sites: {Error}", result.Error);
+
+        if (result.Changed)
+            _log.LogInformation(
+                "Bloqueio de sites aplicado (política {Revision}): {Count} domínio(s).",
+                revision,
+                result.BlockedHosts);
+
+        if (result.Tampered)
+        {
+            try
+            {
+                await ReportEvent(
+                    c,
+                    "web_policy_restored",
+                    "Bloqueio de sites restaurado",
+                    "O bloqueio de sites foi alterado neste computador e o agente o reaplicou.",
+                    new { policyRevision = revision, blockedHosts = result.BlockedHosts },
+                    ct);
+            }
+            catch (Exception e)
+            {
+                _log.LogWarning("Falha ao registrar restauração do bloqueio: {Message}", e.Message);
+            }
+        }
     }
 
     static WebPolicyRule[] ParseWebRules(JsonElement policy)
