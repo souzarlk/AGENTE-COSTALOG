@@ -24,7 +24,7 @@ Antes de publicar um pacote instalável:
 3. O assistente solicita a senha temporária criada no painel da TI.
 4. O instalador registra e inicia o serviço Windows automaticamente.
 
-A senha temporária deve ter pelo menos 20 caracteres, incluir letras e números, possuir validade definida pela TI e só pode cadastrar um computador. O servidor guarda somente o hash da senha. A senha é protegida localmente com DPAPI LocalMachine até o primeiro cadastro, quando é consumida.
+A senha temporária deve ter pelo menos 8 caracteres, incluir letras e números, possuir validade definida pela TI (ou "Nunca expira") e só pode cadastrar um computador. O servidor guarda somente o hash da senha. A senha é protegida localmente com DPAPI LocalMachine até o primeiro cadastro, quando é consumida.
 
 ## Remoção
 

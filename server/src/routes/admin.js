@@ -135,14 +135,14 @@ router.get("/certificates",async(req,res,next)=>{try{
 
 router.post("/enrollment-tokens",requireAdminWrite,async(req,res,next)=>{try{
  const x=z.object({
-  installationPassword:z.string().trim().min(20).max(128).refine(v=>/[A-Za-z]/.test(v)&&/\d/.test(v),"Use pelo menos 16 caracteres, incluindo letras e números."),
-  expiresMinutes:z.number().int().min(5).max(1440).default(60),
+  installationPassword:z.string().trim().min(8).max(128).refine(v=>/[A-Za-z]/.test(v)&&/\d/.test(v),"Use pelo menos 8 caracteres, incluindo letras e números."),
+  expiresMinutes:z.number().int().refine(v=>v===0||(v>=5&&v<=1440),"Validade inválida.").default(60),
   installMode:z.enum(["certificate","certificate-and-web"]).default("certificate-and-web")
  }).strict().parse(req.body);
 
  const id=uuid(),minutes=x.expiresMinutes;
 
- await query("INSERT INTO enrollment_tokens(id,token_hash,created_by,expires_at,install_mode) VALUES(?,?,?,TIMESTAMPADD(MINUTE,?,NOW(3)),?)",[id,hashToken(x.installationPassword),req.admin.id,minutes,x.installMode]);
+ await query("INSERT INTO enrollment_tokens(id,token_hash,created_by,expires_at,install_mode) VALUES(?,?,?,IF(?=0,TIMESTAMPADD(YEAR,100,NOW(3)),TIMESTAMPADD(MINUTE,?,NOW(3))),?)",[id,hashToken(x.installationPassword),req.admin.id,minutes,minutes,x.installMode]);
 
  await audit(null,"enrollment_created","Senha temporária de instalação criada","",{adminId:req.admin.id,expiresMinutes:minutes,installMode:x.installMode});
 

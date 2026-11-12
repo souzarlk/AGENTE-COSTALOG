@@ -150,11 +150,11 @@ Console.Write("Senha temporária de instalação definida no painel da TI: ");
 
 var enrollment = ReadSecret().Trim();
 
-if (enrollment.Length < 20 || enrollment.Length > 128 ||
+if (enrollment.Length < 8 || enrollment.Length > 128 ||
     !enrollment.Any(char.IsLetter) ||
     !enrollment.Any(char.IsDigit))
 {
-    Console.Error.WriteLine("Senha inválida. Ela precisa ter entre 20 e 128 caracteres, com letras e números.");
+    Console.Error.WriteLine("Senha inválida. Ela precisa ter entre 8 e 128 caracteres, com letras e números.");
     return 2;
 }
 
