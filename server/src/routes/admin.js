@@ -5,6 +5,7 @@ import {z} from "zod";
 import {query,transaction} from "../db.js";
 import {newToken,hashToken,signPolicy,signReleaseApproval} from "../security.js";
 import {requireAdmin,requireAdminWrite} from "../middleware.js";
+import {latestRelease} from "../agentReleases.js";
 
 const router=Router();
 router.use(requireAdmin);
@@ -48,6 +49,11 @@ router.get("/dashboard",async(req,res,next)=>{try{
   query("SELECT COUNT(*) total FROM installed_certificates WHERE not_after<=TIMESTAMPADD(DAY,30,NOW(3))")
  ]);
  res.json({devices:d.rows[0],eventsToday:e.rows[0].total,blockedToday:b.rows[0].total,certificatesExpiring:c.rows[0].total,mode:"live"});
+ }catch(e){next(e)}});
+
+router.get("/agent-release",async(req,res,next)=>{try{
+ const r=await latestRelease();
+ res.json(r?{version:r.version,size:r.size,sha256:r.sha256,publishedAt:r.publishedAt}:{version:null});
  }catch(e){next(e)}});
 
 router.get("/devices",async(req,res,next)=>{try{

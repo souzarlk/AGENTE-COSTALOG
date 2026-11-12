@@ -25,3 +25,6 @@ server/keygen-temp/
 .vscode/
 Thumbs.db
 desktop.ini
+
+# Pacotes de atualizacao do agente (gerados por Publish-AgentRelease.ps1)
+server/agent-releases/

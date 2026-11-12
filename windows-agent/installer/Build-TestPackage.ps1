@@ -6,11 +6,12 @@ param(
     [string]$ApiBaseUrl = "http://localhost:8080",
     [ValidateSet("certificate", "certificate-and-web")]
     [string]$InstallMode = "certificate-and-web",
-    [string]$AgentVersion = "0.2.2",
+    [string]$AgentVersion = "",
     [string]$OutputDirectory = (Join-Path ([Environment]::GetFolderPath("Desktop")) "AGENTE-COSTALOG-teste")
 )
 
 $ErrorActionPreference = "Stop"
+if (-not $AgentVersion) { $AgentVersion = (Get-Content (Join-Path $PSScriptRoot "..\agent-version.txt") -Raw).Trim() }
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $publicKey = Join-Path $repo "server\policy-public.pem"

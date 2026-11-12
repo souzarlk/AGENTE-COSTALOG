@@ -186,13 +186,29 @@ function renderDevices(){
    '<div><span>ULTIMO BOOT</span><b>'+esc(formatDeviceDate(d.lastBootAt))+'</b></div>'+
    '<div><span>ULTIMO CONTATO</span><b>'+esc(formatDeviceDate(d.lastSeenAt))+'</b></div>'+
    '<div><span>IP</span><b>'+esc(d.lastIp||"Nao informado")+'</b></div>'+
-   '<div><span>VERSAO DO AGENTE</span><b>'+esc(d.agentVersion||"Nao informado")+'</b></div>'+
+   '<div><span>VERSAO DO AGENTE</span><b>'+esc(d.agentVersion||"Nao informado")+(state.latestAgent&&d.agentVersion&&compareVersions(d.agentVersion,state.latestAgent)<0?' <small>(atualizando para '+esc(state.latestAgent)+')</small>':'')+'</b></div>'+
    '<div><span>POLÍTICA APLICADA</span><b>'+(Number(d.policyRevision)>0?"Revisão "+esc(d.policyRevision):"Nenhuma ainda")+'</b></div>'+
    '</div><div class="device-card-foot"><span>Status: '+esc(label)+'</span></div></article>';
  }).join("");
 }
 
+function compareVersions(a,b){const pa=String(a||"0").split(".").map(n=>parseInt(n,10)||0),pb=String(b||"0").split(".").map(n=>parseInt(n,10)||0);for(let i=0;i<3;i++){const d=(pa[i]||0)-(pb[i]||0);if(d)return d}return 0}
+async function refreshRelease(){
+ try{
+  const r=await fetchJson(apiUrl("/admin/agent-release"));
+  state.latestAgent=r.version||null;
+  const box=$("#releaseInfo");
+  if(box)box.innerHTML=r.version
+   ?'Versão publicada: <b>'+esc(r.version)+'</b> · '+(Number(r.size)/1048576).toFixed(1)+' MB · publicada em '+esc(new Date(r.publishedAt).toLocaleString("pt-BR"))+'.<br>Os computadores com versão anterior se atualizam sozinhos em até ~5 minutos.'
+   :'Nenhuma versão publicada para atualização automática. Use o script Publish-AgentRelease.ps1 para publicar.';
+ }catch(error){
+  state.latestAgent=null;
+  const box=$("#releaseInfo");
+  if(box)box.textContent="Falha ao consultar a versão publicada: "+(error.message||"erro");
+ }
+}
 async function refreshDevices(){
+ await refreshRelease();
  const feedback=$("#deviceFeedback");
  if(feedback)feedback.textContent="Consultando dispositivos...";
  try{
@@ -275,7 +291,8 @@ async function refreshDevices(){
  return head("IMPLANTAÇÃO","Download do agente","Baixe o pacote que será instalado nos computadores dos funcionários. A interface de gestão permanece somente no portal administrativo.",hasDownload?'<span class="status-pill pill-green">Pacote publicado</span>':'<span class="status-pill pill-amber">Aguardando configuração</span>')+
  '<div class="notice-box"><strong>Como será no computador do funcionário:</strong> somente o serviço Windows CostalogAgent será instalado e executado em segundo plano. Não haverá painel local, janela de monitoramento, ícone, atalho ou configurações para o funcionário alterar. A senha temporária e o perfil de proteção são definidos pela TI no portal.</div><br>'+
  '<div class="download-grid"><article class="card download-card"><div class="download-icon">▣</div><h3>AGENTE COSTALOG — Windows</h3><p>Pacote de implantação com serviço em segundo plano, assistente protegido e scripts de instalação e remoção autorizada.</p><div class="download-meta"><span>Windows 10/11 x64</span><span>Instalação administrativa</span></div>'+downloadAction+'</article></div><br>'+
- '<section class="card card-pad">'+cardHead("Pré-requisitos para liberar o download","Validação automática na publicação")+'<div class="detail-grid"><div class="detail-item"><span>01 · API</span><b>URL HTTPS da API e banco MariaDB operacionais</b></div><div class="detail-item"><span>02 · ASSINATURA</span><b>Chave privada protegida no servidor e chave pública no pacote</b></div><div class="detail-item"><span>03 · SENHA</span><b>Senha temporária criada pela TI, com uso único e expiração</b></div><div class="detail-item"><span>04 · HOMOLOGAÇÃO</span><b>Teste de instalação, telemetria, política e recuperação</b></div></div></section>';
+ '<section class="card card-pad">'+cardHead("Pré-requisitos para liberar o download","Validação automática na publicação")+'<div class="detail-grid"><div class="detail-item"><span>01 · API</span><b>URL HTTPS da API e banco MariaDB operacionais</b></div><div class="detail-item"><span>02 · ASSINATURA</span><b>Chave privada protegida no servidor e chave pública no pacote</b></div><div class="detail-item"><span>03 · SENHA</span><b>Senha temporária criada pela TI, com uso único e expiração</b></div><div class="detail-item"><span>04 · HOMOLOGAÇÃO</span><b>Teste de instalação, telemetria, política e recuperação</b></div></div></section>'+
+ '<br><section class="card card-pad">'+cardHead("Atualização automática","Versão distribuída automaticamente aos computadores já instalados")+'<div id="releaseInfo" class="cell-sub">Consultando...</div></section>';
 }
 function pageAgentSettings(){return head("CONTROLE DO SERVIÇO","Configurações agente","Gerencie parâmetros de instalação, acesso local de suporte, autorização de remoção e política antiviolação.",demoLabel)+
 '<div class="notice-box"><strong>Instalação dos funcionários:</strong> o computador recebe somente um serviço Windows em segundo plano, sem painel, ícone, atalho ou interface de gestão. A TI define o modo de proteção e cria uma senha temporária, de uso único e com validade limitada. O funcionário não escolhe as configurações.</div><br>'+
@@ -308,7 +325,7 @@ demo.email.map(m=>'<div class="switch-row"><div><b>'+esc(m.mailbox)+'</b><small>
 '<section class="card card-pad">'+cardHead("Alertas e destinatários","Notificação de incidentes")+
 '<div class="form-stack"><div class="field"><label>E-mail principal de TI</label><input disabled value="ti@costalog.com.br"></div><div class="field"><label>Alertas críticos</label><input disabled value="Imediatos"></div><div class="field"><label>Resumo operacional</label><input disabled value="Diário"></div></div></section></div>'}
 const pages={"overview":pageOverview,"web-blocking":pageWeb,"certificate-rules":pageCertRules,"devices":pageDevices,"health":pageHealth,"installed-certs":pageCerts,"browsing":pageBrowsing,"audit":pageAudit,"downloads":pageDownloads,"agent-settings":pageAgentSettings,"settings":pageSettings};
-function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");if(v==="overview")refreshDashboard();if(v==="devices")refreshDevices();if(v==="web-blocking")refreshRules("web");if(v==="certificate-rules")refreshRules("cert");}
+function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");if(v==="overview")refreshDashboard();if(v==="devices")refreshDevices();if(v==="web-blocking")refreshRules("web");if(v==="downloads")refreshRelease();if(v==="certificate-rules")refreshRules("cert");}
 function validHost(h){return /^(?=.{1,253}$)(\*\.)?([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(h.trim())}
 function publishMessage(res,action){
  if(res&&res.policyRevision)return action+" e publicada (política "+res.policyRevision+"). Os computadores recebem em cerca de 1 minuto.";

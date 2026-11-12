@@ -4,9 +4,10 @@
 #requires -RunAsAdministrator
 param(
     [string]$PackageDirectory = (Join-Path ([Environment]::GetFolderPath("Desktop")) "AGENTE-COSTALOG-teste"),
-    [string]$AgentVersion = "0.2.2"
+    [string]$AgentVersion = ""
 )
 $ErrorActionPreference = "Stop"
+if (-not $AgentVersion) { $AgentVersion = (Get-Content (Join-Path $PSScriptRoot "..\agent-version.txt") -Raw).Trim() }
 try {
     $source = Join-Path $PackageDirectory "service"
     $target = Join-Path $env:ProgramFiles "Costalog\Agent\Service"

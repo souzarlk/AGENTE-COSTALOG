@@ -1,4 +1,6 @@
 
+using System.Diagnostics;
+using System.IO.Compression;
 using System.Management;
 using System.Net;
 using System.Net.Http.Headers;
@@ -6,6 +8,7 @@ using System.Net.Http.Json;
 using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -19,6 +22,9 @@ public sealed class AgentWorker : BackgroundService
 
     DateTimeOffset _lastCertUpload = DateTimeOffset.MinValue;
     DateTimeOffset _lastFailure = DateTimeOffset.MinValue;
+    DateTimeOffset _lastUpdateCheck = DateTimeOffset.MinValue;
+    string? _attemptedUpdateVersion;
+    DateTimeOffset _attemptedUpdateAt = DateTimeOffset.MinValue;
 
     public AgentWorker(ILogger<AgentWorker> log, HttpClient http)
     {
@@ -54,6 +60,7 @@ public sealed class AgentWorker : BackgroundService
                 await SyncPolicy(cfg, stop);
                 await FlushEvents(cfg, stop);
                 await CheckUninstallApproval(cfg, stop);
+                await CheckForUpdate(cfg, stop);
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested)
             {
@@ -418,6 +425,152 @@ public sealed class AgentWorker : BackgroundService
         );
 
         await ApplyWebBlocking(c, rev, webRules, ct);
+    }
+
+    // ===== Atualização automática =====
+    // A cada 5 minutos pergunta à API se há versão nova. O manifesto vem assinado com a
+    // chave das políticas; o pacote só é aplicado se o SHA-256 conferir.
+    async Task CheckForUpdate(AgentConfig c, CancellationToken ct)
+    {
+        if (DateTimeOffset.UtcNow - _lastUpdateCheck < TimeSpan.FromMinutes(5))
+            return;
+
+        _lastUpdateCheck = DateTimeOffset.UtcNow;
+
+        try
+        {
+            await TryUpdate(c, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            _log.LogWarning("Falha na atualização automática: {Message}", e.Message);
+        }
+    }
+
+    async Task TryUpdate(AgentConfig c, CancellationToken ct)
+    {
+        using var check = Request(
+            c,
+            HttpMethod.Get,
+            "api/v1/device/agent-update?current=" + Uri.EscapeDataString(c.AgentVersion));
+
+        using var checkRes = await _http.SendAsync(check, ct);
+
+        if (checkRes.StatusCode is HttpStatusCode.NoContent or HttpStatusCode.NotFound)
+            return;
+
+        await EnsureOk(checkRes, "Verificação de atualização recusada.", ct);
+
+        var envelope = await checkRes.Content.ReadFromJsonAsync<PolicyEnvelope>(cancellationToken: ct)
+            ?? throw new InvalidDataException("Manifesto de atualização vazio.");
+
+        using var doc = PolicyVerifier.VerifyEnvelope(envelope, c.PolicyPublicKeyPem);
+        var m = doc.RootElement;
+
+        if (m.GetProperty("purpose").GetString() != "agent-update")
+            throw new InvalidDataException("Manifesto de atualização inválido.");
+
+        if (m.GetProperty("deviceId").GetString() != c.DeviceId)
+            throw new InvalidDataException("Manifesto de atualização destinado a outro computador.");
+
+        if (PolicyVerifier.ReadExpiry(m) <= DateTimeOffset.UtcNow)
+            throw new InvalidDataException("Manifesto de atualização expirado.");
+
+        var version = m.GetProperty("version").GetString() ?? "";
+        var expectedHash = (m.GetProperty("sha256").GetString() ?? "").ToLowerInvariant();
+
+        if (!Version.TryParse(version, out var target) ||
+            !Version.TryParse(c.AgentVersion, out var current) ||
+            target <= current)
+            return;
+
+        // Evita repetir uma tentativa que acabou de ser feita (sucesso reinicia o serviço).
+        if (_attemptedUpdateVersion == version &&
+            DateTimeOffset.UtcNow - _attemptedUpdateAt < TimeSpan.FromHours(1))
+            return;
+
+        _attemptedUpdateVersion = version;
+        _attemptedUpdateAt = DateTimeOffset.UtcNow;
+
+        _log.LogInformation("Atualização disponível: {Current} -> {Target}.", c.AgentVersion, version);
+
+        var updateRoot = Path.Combine(AgentConfigStore.PrivateRoot, "update");
+
+        if (Directory.Exists(updateRoot))
+            Directory.Delete(updateRoot, true);
+
+        Directory.CreateDirectory(updateRoot);
+
+        var zipPath = Path.Combine(updateRoot, "package.zip");
+
+        using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        {
+            timeout.CancelAfter(TimeSpan.FromMinutes(15));
+
+            using var download = Request(
+                c,
+                HttpMethod.Get,
+                "api/v1/device/agent-update/package/" + Uri.EscapeDataString(version));
+
+            using var downloadRes = await _http.SendAsync(
+                download,
+                HttpCompletionOption.ResponseHeadersRead,
+                timeout.Token);
+
+            await EnsureOk(downloadRes, "Download da atualização recusado.", timeout.Token);
+
+            await using var input = await downloadRes.Content.ReadAsStreamAsync(timeout.Token);
+            await using var output = File.Create(zipPath);
+            await input.CopyToAsync(output, timeout.Token);
+        }
+
+        string actualHash;
+
+        await using (var file = File.OpenRead(zipPath))
+            actualHash = Convert.ToHexString(await SHA256.HashDataAsync(file, ct)).ToLowerInvariant();
+
+        if (actualHash != expectedHash)
+            throw new CryptographicException("O pacote de atualização não confere com o manifesto assinado.");
+
+        var staging = Path.Combine(updateRoot, "staging");
+        ZipFile.ExtractToDirectory(zipPath, staging);
+
+        if (!File.Exists(Path.Combine(staging, "Costalog.Agent.Service.exe")))
+            throw new InvalidDataException("Pacote de atualização sem o executável do serviço.");
+
+        var script = Path.Combine(updateRoot, "apply-update.ps1");
+        File.WriteAllText(script, AgentUpdateScript.Content, new UTF8Encoding(true));
+
+        var start = new ProcessStartInfo
+        {
+            FileName = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        foreach (var arg in new[]
+        {
+            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", script,
+            "-Staging", staging,
+            "-Target", AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar),
+            "-Config", AgentConfigStore.ConfigPath,
+            "-Version", version,
+            "-Log", Path.Combine(updateRoot, "update.log")
+        })
+        {
+            start.ArgumentList.Add(arg);
+        }
+
+        Process.Start(start)?.Dispose();
+
+        _log.LogInformation(
+            "Atualização para {Version} baixada e verificada. O serviço será reiniciado com a nova versão.",
+            version);
     }
 
     async Task ApplyWebBlocking(

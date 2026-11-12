@@ -4,6 +4,7 @@ import {z} from "zod";
 import {query,transaction} from "../db.js";
 import {newToken,hashToken,signPolicy} from "../security.js";
 import {requireDevice} from "../middleware.js";
+import {latestRelease,compareVersions} from "../agentReleases.js";
 const router=Router(),uuid=()=>crypto.randomUUID();
 const enrollment=z.object({enrollmentToken:z.string().min(8).max(200),deviceName:z.string().trim().min(1).max(120),windowsUsername:z.string().max(120).default(""),domainName:z.string().max(160).default(""),osCaption:z.string().max(160).default(""),osVersion:z.string().max(80).default(""),osBuild:z.string().max(80).default(""),manufacturer:z.string().max(120).default(""),model:z.string().max(160).default(""),cpuName:z.string().max(180).default(""),ramTotalBytes:z.number().int().min(0).default(0),agentVersion:z.string().max(40).default(""),installMode:z.enum(["certificate","certificate-and-web"]),bootAt:z.string().datetime().optional()}).strict();
 router.post("/enroll",async(req,res,next)=>{try{
@@ -22,6 +23,23 @@ router.post("/enroll",async(req,res,next)=>{try{
  res.status(201).json({deviceId,deviceToken,installMode:assignedMode,warning:"Credencial exibida uma única vez. Proteja-a com DPAPI no Windows."});
  }catch(e){next(e)}});
 router.use(requireDevice);
+// Atualização automática: manifesto assinado com a mesma chave das políticas.
+router.get("/agent-update",async(req,res,next)=>{try{
+ const current=String(req.query.current||"0.0.0").slice(0,40);
+ const release=await latestRelease();
+ if(!release||compareVersions(release.version,current)<=0)return res.status(204).end();
+ const now=Date.now();
+ const payload={purpose:"agent-update",version:release.version,sha256:release.sha256,size:release.size,deviceId:req.device.id,issuedAt:new Date(now).toISOString(),expiresAt:new Date(now+3600000).toISOString()};
+ const signed=signPolicy(payload);
+ res.set("Cache-Control","no-store");
+ res.json({revision:0,status:"agent-update",keyId:"costalog-policy-v1",signedPayload:signed.signedPayload,signature:signed.signature});
+ }catch(e){next(e)}});
+router.get("/agent-update/package/:version",async(req,res,next)=>{try{
+ const release=await latestRelease();
+ if(!release||release.version!==req.params.version)return res.status(404).json({message:"Versão não disponível."});
+ res.set("Cache-Control","no-store");
+ res.sendFile(release.file,{headers:{"Content-Type":"application/zip"}},err=>{if(err&&!res.headersSent)next(err)});
+ }catch(e){next(e)}});
 router.post("/heartbeat",async(req,res,next)=>{try{
  const x=z.object({agentVersion:z.string().max(40).optional(),policyRevision:z.number().int().min(0).default(0),bootAt:z.string().datetime().optional(),ipAddress:z.string().max(64).optional()}).strict().parse(req.body||{});
  await query("UPDATE devices SET last_seen_at=NOW(3),agent_version=COALESCE(NULLIF(?,''),agent_version),policy_revision=GREATEST(policy_revision,?),last_boot_at=COALESCE(?,last_boot_at),last_ip=COALESCE(?,last_ip),updated_at=NOW(3) WHERE id=?",[x.agentVersion||"",x.policyRevision,x.bootAt||null,x.ipAddress||null,req.device.id]);
