@@ -243,6 +243,13 @@ router.get("/certificates",async(req,res,next)=>{try{
  res.json({items:r.rows});
  }catch(e){next(e)}});
 
+// Registro de uso dos certificados (Sites para certificados).
+router.get("/certificate-usage",async(req,res,next)=>{try{
+ const days=[1,7,30].includes(Number(req.query.days))?Number(req.query.days):7;
+ const r=await query("SELECT e.id,e.device_id AS deviceId,d.device_name AS deviceName,e.event_type AS eventType,e.severity,e.title,e.message,e.details,e.created_at AS createdAt FROM device_events e JOIN devices d ON d.id=e.device_id WHERE e.event_type LIKE 'certificate\\_use\\_%' AND e.created_at>NOW(3)-INTERVAL ? DAY ORDER BY e.created_at DESC LIMIT 300",[days]);
+ res.json({days,items:r.rows});
+ }catch(e){next(e)}});
+
 router.post("/enrollment-tokens",requireAdminWrite,async(req,res,next)=>{try{
  const x=z.object({
   installationPassword:z.string().trim().min(8).max(128).refine(v=>/[A-Za-z]/.test(v)&&/\d/.test(v),"Use pelo menos 8 caracteres, incluindo letras e números."),

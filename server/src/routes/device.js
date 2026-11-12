@@ -126,6 +126,44 @@ router.post("/uninstall-request",async(req,res,next)=>{try{
  await query("INSERT INTO device_events(id,device_id,event_type,severity,title,message,details) VALUES(?,?,?,'critical',?,?,?)",[uuid(),req.device.id,"uninstall_requested","Solicitação de remoção do agente",x.reason,JSON.stringify({requestId:id,requestedBy:x.requestedBy})]);
  res.status(202).json({requestId:id,status:"pending",message:"A solicitação foi enviada à TI. O agente permanece instalado até a aprovação central."});
  }catch(e){next(e)}});
+// Uso de certificados digitais: cruza cada uso com os sites visitados naquele momento
+// e com a lista "Sites para certificados". Uso fora da lista gera alerta crítico.
+const BROWSERS=new Set(["chrome.exe","msedge.exe","brave.exe","opera.exe","firefox.exe","iexplore.exe","vivaldi.exe"]);
+function hostAllowed(host,rules){return rules.some(r=>host===r||host.endsWith("."+r))}
+function certName(subject){const m=/(?:^|,\s*)CN=([^,]+)/i.exec(subject||"");return (m?m[1]:subject||"Certificado").trim()}
+router.post("/certificate-usage",async(req,res,next)=>{try{
+ const items=z.array(z.object({
+  occurredAt:z.string().datetime(),
+  thumbprint:z.string().regex(/^[0-9A-Fa-f]{40}$/),
+  subject:z.string().max(512).default(""),
+  process:z.string().max(160).default(""),
+  windowsUser:z.string().max(160).default("")
+ }).strict()).max(100).parse(req.body.items);
+ const rules=(await query("SELECT hostname FROM certificate_site_rules WHERE enabled=1")).rows.map(r=>String(r.hostname).toLowerCase().replace(/^\*\./,""));
+ let alerts=0;
+ for(const u of items){
+  const when=new Date(u.occurredAt),proc=u.process.toLowerCase(),cert=certName(u.subject);
+  const base={thumbprint:u.thumbprint.toUpperCase(),certificate:cert,process:u.process,windowsUser:u.windowsUser,occurredAt:when.toISOString()};
+  let type,severity,title,message,details;
+  if(BROWSERS.has(proc)){
+   const visits=(await query("SELECT hostname,occurred_at FROM browsing_events WHERE device_id=? AND decision='allowed' AND occurred_at BETWEEN ? AND ? ORDER BY ABS(TIMESTAMPDIFF(MICROSECOND,occurred_at,?)) LIMIT 15",[req.device.id,new Date(when.getTime()-90000),new Date(when.getTime()+30000),when])).rows;
+   const hosts=[...new Set(visits.map(v=>v.hostname))];
+   // O site que pediu o certificado é a visita mais próxima do momento do uso.
+   const allowedHost=hosts.length&&hostAllowed(hosts[0],rules)?hosts[0]:null;
+   if(allowedHost){type="certificate_use_allowed";severity="info";title="Certificado usado em site autorizado";message=cert+" em "+allowedHost;details={...base,site:allowedHost,candidates:hosts,allowed:true}}
+   else if(hosts.length){type="certificate_use_blocked";severity="critical";title="Certificado usado fora da lista autorizada";message=cert+" em "+hosts[0];details={...base,site:hosts[0],candidates:hosts,allowed:false}}
+   else{type="certificate_use_unknown";severity="warning";title="Certificado solicitado por um site não identificado";message=cert+" ("+u.process+")";details={...base,site:"",candidates:[],allowed:false}}
+  }else{
+   type="certificate_use_program";severity="warning";title="Certificado usado por um programa";message=cert+" por "+(u.process||"programa desconhecido");details={...base,site:"",candidates:[],allowed:null}
+  }
+  const dup=await query("SELECT id FROM device_events WHERE device_id=? AND event_type=? AND message=? AND created_at>NOW(3)-INTERVAL 10 MINUTE LIMIT 1",[req.device.id,type,message.slice(0,1200)]);
+  if(dup.rowCount)continue;
+  await query("INSERT INTO device_events(id,device_id,event_type,severity,title,message,details) VALUES(?,?,?,?,?,?,?)",[uuid(),req.device.id,type,severity,title,message.slice(0,1200),JSON.stringify(details)]);
+  if(severity==="critical")alerts++;
+ }
+ res.status(202).json({accepted:true,alerts});
+ }catch(e){next(e)}});
+
 // Desinstalação local: o técnico digita a senha definida no painel (DESINSTALAR.cmd).
 router.post("/uninstall-verify",async(req,res,next)=>{try{
  const x=z.object({password:z.string().min(1).max(200),requestedBy:z.string().max(160).default("")}).strict().parse(req.body);

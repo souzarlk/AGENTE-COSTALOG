@@ -26,6 +26,8 @@ public sealed class AgentWorker : BackgroundService
     DateTimeOffset _lastWindowsEventScan = DateTimeOffset.MinValue;
     DateTimeOffset _lastBrowsingScan = DateTimeOffset.MinValue;
     readonly Dictionary<string, DateTime> _lastAttemptSent = new(StringComparer.OrdinalIgnoreCase);
+    readonly List<CertificateUse> _pendingCertUses = new();
+    static HashSet<string> s_clientThumbprints = new(StringComparer.OrdinalIgnoreCase);
     string? _attemptedUpdateVersion;
     DateTimeOffset _attemptedUpdateAt = DateTimeOffset.MinValue;
 
@@ -81,6 +83,7 @@ public sealed class AgentWorker : BackgroundService
                 await ScanWindowsEvents(cfg, stop);
                 await ScanBrowsing(cfg, stop);
                 await FlushBlockedAttempts(cfg, stop);
+                await ScanCertificateUsage(cfg, stop);
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested)
             {
@@ -682,6 +685,73 @@ public sealed class AgentWorker : BackgroundService
         await ApplyWebBlocking(c, rev, webRules, ct);
     }
 
+    // ===== Uso dos certificados digitais =====
+    // Lê o log CAPI2 e junta os usos de certificados com chave privada. Depois de 1 minuto
+    // (tempo para o navegador gravar o histórico) envia à API, que cruza com os sites
+    // visitados naquele momento e verifica a lista de sites autorizados.
+    async Task ScanCertificateUsage(AgentConfig c, CancellationToken ct)
+    {
+        try
+        {
+            CertificateUsageMonitor.EnsureLogEnabled();
+
+            var cursorPath = Path.Combine(AgentConfigStore.PrivateRoot, "capi2-cursor.txt");
+            var since = DateTime.UtcNow.AddMinutes(-1);
+
+            if (File.Exists(cursorPath) && long.TryParse(File.ReadAllText(cursorPath).Trim(), out var ticks))
+                since = new DateTime(Math.Max(ticks, DateTime.UtcNow.AddHours(-2).Ticks), DateTimeKind.Utc);
+
+            var (uses, last) = CertificateUsageMonitor.Read(since, s_clientThumbprints, 5000);
+
+            if (last is not null)
+                File.WriteAllText(cursorPath, last.Value.Ticks.ToString());
+
+            foreach (var use in uses)
+            {
+                var duplicate = _pendingCertUses.Any(x =>
+                    x.Thumbprint == use.Thumbprint &&
+                    x.Process.Equals(use.Process, StringComparison.OrdinalIgnoreCase) &&
+                    (use.TimeUtc - x.TimeUtc).Duration() < TimeSpan.FromSeconds(60));
+
+                if (!duplicate)
+                    _pendingCertUses.Add(use);
+            }
+
+            var ready = _pendingCertUses.Where(x => DateTime.UtcNow - x.TimeUtc >= TimeSpan.FromSeconds(60)).ToList();
+
+            if (ready.Count == 0)
+                return;
+
+            await ScanBrowsing(c, ct, force: true);
+
+            using var req = Request(c, HttpMethod.Post, "api/v1/device/certificate-usage", new
+            {
+                items = ready.Take(100).Select(x => new
+                {
+                    occurredAt = x.TimeUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+                    thumbprint = x.Thumbprint,
+                    subject = x.Subject.Length > 300 ? x.Subject[..300] : x.Subject,
+                    process = x.Process,
+                    windowsUser = x.WindowsUser
+                }).ToArray()
+            });
+
+            using var res = await _http.SendAsync(req, ct);
+            await EnsureOk(res, "Uso de certificado recusado.", ct);
+
+            foreach (var item in ready.Take(100))
+                _pendingCertUses.Remove(item);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            _log.LogWarning("Falha ao monitorar o uso de certificados: {Message}", e.Message);
+        }
+    }
+
     // ===== Tentativas de acesso a sites bloqueados =====
     // Envia as tentativas capturadas pelo ouvinte local (no máximo 1 por site a cada 2 minutos).
     async Task FlushBlockedAttempts(AgentConfig c, CancellationToken ct)
@@ -727,12 +797,12 @@ public sealed class AgentWorker : BackgroundService
     // ===== Atividade de navegação =====
     // A cada 5 minutos envia as visitas novas do histórico de cada navegador/usuário.
     // O ponto de partida de cada navegador fica salvo, então nada é enviado duas vezes.
-    async Task ScanBrowsing(AgentConfig c, CancellationToken ct)
+    async Task ScanBrowsing(AgentConfig c, CancellationToken ct, bool force = false)
     {
         if (c.InstallMode != "certificate-and-web")
             return;
 
-        if (DateTimeOffset.UtcNow - _lastBrowsingScan < TimeSpan.FromMinutes(5))
+        if (!force && DateTimeOffset.UtcNow - _lastBrowsingScan < TimeSpan.FromMinutes(5))
             return;
 
         _lastBrowsingScan = DateTimeOffset.UtcNow;
@@ -1590,12 +1660,16 @@ public sealed class AgentWorker : BackgroundService
     {
         var list = new List<object>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var withKey = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         void Add(X509Certificate2 cert, string storeName, bool hasPrivateKey)
         {
             try
             {
                 var thumb = cert.Thumbprint ?? "";
+
+                if (hasPrivateKey && thumb.Length == 40)
+                    withKey.Add(thumb.ToUpperInvariant());
 
                 if (!seen.Add(thumb + "|" + storeName) || list.Count >= 2000)
                     return;
@@ -1639,6 +1713,7 @@ public sealed class AgentWorker : BackgroundService
                 Add(userCert.Certificate, "Usuário " + userCert.Owner, userCert.HasPrivateKey);
         }
 
+        s_clientThumbprints = withKey;
         return list.ToArray();
     }
 
