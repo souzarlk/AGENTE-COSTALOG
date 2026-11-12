@@ -6,8 +6,8 @@ namespace Costalog.Agent.Service;
 
 public sealed record UserCertificate(X509Certificate2 Certificate, bool HasPrivateKey, string Owner);
 
-// Lê o repositório "Pessoal" (My) de cada usuário com o perfil carregado
-// (HKEY_USERS\<SID>\Software\Microsoft\SystemCertificates\My\Certificates).
+// Lê o repositório "Pessoal" (My) de cada usuário do computador: a parte no registro
+// (HKEY_USERS) e a parte em arquivos no perfil (AppData\Roaming\Microsoft\SystemCertificates).
 // Somente o certificado público é lido; a chave privada nunca é acessada nem exportada.
 public static class UserCertificateReader
 {
@@ -17,24 +17,10 @@ public static class UserCertificateReader
     public static List<UserCertificate> Read()
     {
         var list = new List<UserCertificate>();
+        var profiles = ReadProfiles();
 
-        string[] sids;
-
-        try
+        foreach (var (sid, profilePath) in profiles)
         {
-            sids = Registry.Users.GetSubKeyNames();
-        }
-        catch
-        {
-            return list;
-        }
-
-        foreach (var sid in sids)
-        {
-            if (!sid.StartsWith("S-1-5-21-", StringComparison.OrdinalIgnoreCase) ||
-                sid.EndsWith("_Classes", StringComparison.OrdinalIgnoreCase))
-                continue;
-
             var owner = sid;
 
             try
@@ -43,31 +29,55 @@ public static class UserCertificateReader
             }
             catch
             {
+                if (!string.IsNullOrEmpty(profilePath))
+                    owner = Path.GetFileName(profilePath.TrimEnd('\\'));
             }
 
+            // 1) Parte do repositório guardada no registro (usuário com sessão aberta).
             try
             {
                 using var certificates = Registry.Users.OpenSubKey(
                     sid + @"\Software\Microsoft\SystemCertificates\My\Certificates");
 
-                if (certificates is null)
+                if (certificates is not null)
+                {
+                    foreach (var name in certificates.GetSubKeyNames())
+                    {
+                        try
+                        {
+                            using var key = certificates.OpenSubKey(name);
+
+                            if (key?.GetValue("Blob") is byte[] blob)
+                                AddFromBlob(list, blob, owner);
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            // 2) Parte guardada em arquivos no perfil (AppData\Roaming), onde ficam
+            //    a maioria dos certificados A1 importados. Funciona mesmo sem sessão aberta.
+            if (string.IsNullOrEmpty(profilePath))
+                continue;
+
+            try
+            {
+                var folder = Path.Combine(
+                    profilePath, "AppData", "Roaming", "Microsoft", "SystemCertificates", "My", "Certificates");
+
+                if (!Directory.Exists(folder))
                     continue;
 
-                foreach (var name in certificates.GetSubKeyNames())
+                foreach (var file in Directory.GetFiles(folder))
                 {
                     try
                     {
-                        using var key = certificates.OpenSubKey(name);
-
-                        if (key?.GetValue("Blob") is not byte[] blob)
-                            continue;
-
-                        var (der, hasKey) = ParseBlob(blob);
-
-                        if (der is null)
-                            continue;
-
-                        list.Add(new UserCertificate(new X509Certificate2(der), hasKey, owner));
+                        AddFromBlob(list, File.ReadAllBytes(file), owner);
                     }
                     catch
                     {
@@ -80,6 +90,59 @@ public static class UserCertificateReader
         }
 
         return list;
+    }
+
+    static void AddFromBlob(List<UserCertificate> list, byte[] blob, string owner)
+    {
+        var (der, hasKey) = ParseBlob(blob);
+
+        if (der is not null)
+            list.Add(new UserCertificate(new X509Certificate2(der), hasKey, owner));
+    }
+
+    // Perfis de usuário do computador: os com sessão aberta (HKEY_USERS) e todos os
+    // cadastrados no Windows (ProfileList), com a pasta de cada perfil.
+    static List<(string Sid, string ProfilePath)> ReadProfiles()
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            using var profileList = Registry.LocalMachine.OpenSubKey(
+                @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList");
+
+            if (profileList is not null)
+            {
+                foreach (var sid in profileList.GetSubKeyNames())
+                {
+                    if (!sid.StartsWith("S-1-5-21-", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    using var key = profileList.OpenSubKey(sid);
+                    var path = key?.GetValue("ProfileImagePath") as string ?? "";
+                    result[sid] = Environment.ExpandEnvironmentVariables(path);
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            foreach (var sid in Registry.Users.GetSubKeyNames())
+            {
+                if (sid.StartsWith("S-1-5-21-", StringComparison.OrdinalIgnoreCase) &&
+                    !sid.EndsWith("_Classes", StringComparison.OrdinalIgnoreCase) &&
+                    !result.ContainsKey(sid))
+                    result[sid] = "";
+            }
+        }
+        catch
+        {
+        }
+
+        return result.Select(x => (x.Key, x.Value)).ToList();
     }
 
     // Formato serializado do Windows: [id (4 bytes)][reservado (4)][tamanho (4)][dados]...
