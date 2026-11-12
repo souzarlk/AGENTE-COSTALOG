@@ -21,17 +21,7 @@ public static class UserCertificateReader
 
         foreach (var (sid, profilePath) in profiles)
         {
-            var owner = sid;
-
-            try
-            {
-                owner = new SecurityIdentifier(sid).Translate(typeof(NTAccount)).Value;
-            }
-            catch
-            {
-                if (!string.IsNullOrEmpty(profilePath))
-                    owner = Path.GetFileName(profilePath.TrimEnd('\\'));
-            }
+            var owner = OwnerName(sid, profilePath);
 
             // 1) Parte do repositório guardada no registro (usuário com sessão aberta).
             try
@@ -92,6 +82,18 @@ public static class UserCertificateReader
         return list;
     }
 
+    internal static string OwnerName(string sid, string profilePath)
+    {
+        try
+        {
+            return new SecurityIdentifier(sid).Translate(typeof(NTAccount)).Value;
+        }
+        catch
+        {
+            return string.IsNullOrEmpty(profilePath) ? sid : Path.GetFileName(profilePath.TrimEnd('\\'));
+        }
+    }
+
     static void AddFromBlob(List<UserCertificate> list, byte[] blob, string owner)
     {
         var (der, hasKey) = ParseBlob(blob);
@@ -102,7 +104,7 @@ public static class UserCertificateReader
 
     // Perfis de usuário do computador: os com sessão aberta (HKEY_USERS) e todos os
     // cadastrados no Windows (ProfileList), com a pasta de cada perfil.
-    static List<(string Sid, string ProfilePath)> ReadProfiles()
+    internal static List<(string Sid, string ProfilePath)> ReadProfiles()
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 

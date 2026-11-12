@@ -79,6 +79,28 @@ router.post("/events",async(req,res,next)=>{try{
  const id=uuid();await query("INSERT INTO device_events(id,device_id,event_type,severity,title,message,details) VALUES(?,?,?,?,?,?,?)",[id,req.device.id,x.eventType,x.severity,x.title,x.message,JSON.stringify(x.details)]);
  res.status(201).json({id,accepted:true});
  }catch(e){next(e)}});
+// Histórico dos navegadores enviado em lotes pelo agente (até 500 visitas por envio).
+router.post("/browsing-history",async(req,res,next)=>{try{
+ const items=z.array(z.object({
+  occurredAt:z.string().datetime(),
+  url:z.string().max(4000),
+  title:z.string().max(1000).default(""),
+  browser:z.string().max(40).default(""),
+  windowsUser:z.string().max(160).default("")
+ }).strict()).max(500).parse(req.body.items);
+ const rows=[];
+ for(const v of items){
+  let host="";
+  try{const u=new URL(v.url);if(u.protocol!=="http:"&&u.protocol!=="https:")continue;host=u.hostname.toLowerCase()}catch{continue}
+  if(!host)continue;
+  rows.push([uuid(),req.device.id,host.slice(0,253),"allowed",req.device.policyRevision||0,"",new Date(v.occurredAt),v.url.slice(0,2048),v.title.slice(0,300),v.browser,v.windowsUser]);
+ }
+ for(let i=0;i<rows.length;i+=100){
+  const chunk=rows.slice(i,i+100);
+  await query("INSERT INTO browsing_events(id,device_id,hostname,decision,policy_revision,rule_name,occurred_at,url,page_title,browser,windows_user) VALUES "+chunk.map(()=>"(?,?,?,?,?,?,?,?,?,?,?)").join(","),chunk.flat());
+ }
+ res.status(202).json({accepted:true,stored:rows.length});
+ }catch(e){next(e)}});
 router.post("/browsing-events",async(req,res,next)=>{try{
  const x=z.object({hostname:z.string().min(1).max(253),decision:z.enum(["allowed","blocked"]),policyRevision:z.number().int().min(0).default(0),ruleName:z.string().max(160).default(""),occurredAt:z.string().datetime().optional()}).strict().parse(req.body);
  if(/[/:?#@]/.test(x.hostname))return res.status(400).json({message:"Envie somente hostname/domínio, sem URL completa."});

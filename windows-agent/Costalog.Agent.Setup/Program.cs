@@ -119,8 +119,9 @@ var configPath = Path.Combine(privateRoot, "agent.json");
 
 if (File.Exists(configPath))
 {
-    Console.Error.WriteLine("O agente já possui uma configuração neste computador.");
-    Console.Error.WriteLine("A reinstalação precisa ser feita por um procedimento de atualização autorizado.");
+    Console.WriteLine("O AGENTE COSTALOG já está instalado neste computador.");
+    Console.WriteLine("Não é preciso instalar de novo: o agente se atualiza sozinho");
+    Console.WriteLine("sempre que a TI publica uma versão nova no painel.");
     return 2;
 }
 

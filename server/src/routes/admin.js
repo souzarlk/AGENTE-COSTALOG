@@ -158,6 +158,29 @@ router.get("/events",async(req,res,next)=>{try{
  res.json({items:r.rows});
  }catch(e){next(e)}});
 
+// Resumo de navegação por computador no período (1, 7 ou 30 dias).
+router.get("/browsing/summary",async(req,res,next)=>{try{
+ const days=[1,7,30].includes(Number(req.query.days))?Number(req.query.days):1;
+ const r=await query("SELECT d.id AS deviceId,d.device_name AS deviceName,d.windows_username AS username,COUNT(b.id) AS visits,COUNT(DISTINCT b.hostname) AS sites,MAX(b.occurred_at) AS lastVisit FROM devices d LEFT JOIN browsing_events b ON b.device_id=d.id AND b.occurred_at>NOW(3)-INTERVAL ? DAY WHERE d.status='active' GROUP BY d.id,d.device_name,d.windows_username ORDER BY d.device_name",[days]);
+ res.json({days,items:r.rows});
+ }catch(e){next(e)}});
+
+// Visitas de um computador, com pesquisa por site, título ou endereço.
+router.get("/browsing",async(req,res,next)=>{try{
+ const days=[1,7,30].includes(Number(req.query.days))?Number(req.query.days):1;
+ const deviceId=String(req.query.deviceId||"");
+ if(!deviceId)return res.status(400).json({message:"Informe o computador."});
+ const q=String(req.query.q||"").trim().slice(0,100);
+ const like="%"+q.replace(/[\\%_]/g,m=>"\\"+m)+"%";
+ const filter=q?" AND (b.hostname LIKE ? OR b.page_title LIKE ? OR b.url LIKE ?)":"";
+ const params=q?[deviceId,days,like,like,like]:[deviceId,days];
+ const [items,top]=await Promise.all([
+  query("SELECT b.occurred_at AS occurredAt,b.hostname,b.url,b.page_title AS title,b.browser,b.windows_user AS windowsUser,b.decision FROM browsing_events b WHERE b.device_id=? AND b.occurred_at>NOW(3)-INTERVAL ? DAY"+filter+" ORDER BY b.occurred_at DESC LIMIT 300",params),
+  query("SELECT b.hostname,COUNT(*) AS visits FROM browsing_events b WHERE b.device_id=? AND b.occurred_at>NOW(3)-INTERVAL ? DAY"+filter+" GROUP BY b.hostname ORDER BY visits DESC LIMIT 10",params)
+ ]);
+ res.json({days,items:items.rows,topSites:top.rows});
+ }catch(e){next(e)}});
+
 router.get("/browsing-events",async(req,res,next)=>{try{
  const limit=Math.min(500,Math.max(1,Number(req.query.limit)||100));
  const r=await query("SELECT b.id,b.hostname,b.decision,b.policy_revision AS policyRevision,b.rule_name AS ruleName,b.occurred_at AS occurredAt,d.device_name AS deviceName FROM browsing_events b JOIN devices d ON d.id=b.device_id ORDER BY b.occurred_at DESC LIMIT ?",[limit]);

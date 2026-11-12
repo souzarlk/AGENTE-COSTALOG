@@ -74,6 +74,15 @@ if %errorlevel% neq 0 (
   exit /b
 )
 cd /d "%~dp0"
+if not exist "%~dp0Costalog.Agent.Setup.exe" (
+  echo.
+  echo  O instalador foi aberto de dentro do arquivo .zip.
+  echo  Clique com o botao direito no .zip, escolha "Extrair tudo"
+  echo  e execute o INSTALAR.cmd da pasta extraida.
+  echo.
+  pause
+  exit /b
+)
 "%~dp0Costalog.Agent.Setup.exe"
 echo.
 pause

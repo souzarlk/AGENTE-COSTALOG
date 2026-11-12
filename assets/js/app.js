@@ -328,13 +328,39 @@ function renderCertGroups(){
    '<span class="cert-chev">›</span></summary><div class="cert-group-body">'+certTable(g.items,false)+'<div class="cert-group-foot">'+deviceLink(g.id,"Abrir detalhes do computador →")+'</div></div></details>';
  }).join("");
 }function pageBrowsing(){
- return head("VISIBILIDADE DE NAVEGACAO","Atividade de navegacao","Registro de dominios, horarios, dispositivos e decisoes das politicas.")+
- '<div class="notice-box"><strong>Privacidade e transparencia:</strong> o monitoramento deve ser informado aos usuarios e limitado a finalidade corporativa. Nao coletamos conteudo de paginas, formularios, senhas ou cookies.</div><br>'+
- '<section class="card data-card">'+
- cardHead("Eventos de navegacao","Registros recebidos dos computadores")+
- '<div class="empty-state">Nenhum evento de navegacao recebido.</div>'+
- '<p class="cell-sub">Os registros aparecerao aqui quando o agente Windows estiver implementado, conectado e autorizado a enviar eventos.</p>'+
- '</section>'
+ return head("VISIBILIDADE DE NAVEGAÇÃO","Atividade de navegação","Sites acessados em cada computador: horário, endereço, título da página, navegador e usuário.",'<button class="btn btn-secondary btn-small" data-action="refresh-browsing">↻ Atualizar</button>')+
+ '<div class="notice-box"><strong>Transparência:</strong> informe aos funcionários, por escrito, que a navegação nos computadores da empresa é monitorada. O agente lê o histórico do Chrome, Edge, Brave, Opera e Firefox a cada 5 minutos. O histórico fica guardado por 90 dias.</div><br>'+
+ '<div class="toolbar"><select class="filter-select" id="browsingDays"><option value="1">Últimas 24 horas</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option></select></div>'+
+ '<div id="browsingRoot"><div class="empty-state">Carregando...</div></div>';
+}
+async function refreshBrowsing(){
+ const box=$("#browsingRoot");if(!box)return;
+ const days=state.browsingDays||1;
+ const sel=$("#browsingDays");if(sel)sel.value=String(days);
+ try{
+  const r=await fetchJson(apiUrl("/admin/browsing/summary?days="+days));
+  if(state.view!=="browsing")return;
+  const items=r.items||[],active=items.filter(i=>Number(i.visits)>0);
+  const visits=items.reduce((a,i)=>a+Number(i.visits||0),0);
+  box.innerHTML='<div class="metric-grid">'+metric("COMPUTADORES COM ATIVIDADE",String(active.length),"de "+items.length+" cadastrados","PC")+metric("PÁGINAS ACESSADAS",String(visits),"No período selecionado","WEB")+metric("PERÍODO",days===1?"24 h":days+" dias","Use o filtro para mudar","⌚")+metric("RETENÇÃO","90 dias","Registros mais antigos são apagados","⟲")+'</div>'+
+   '<section class="card data-card">'+cardHead("Navegação por computador","Clique em um computador para ver os sites acessados")+
+   (items.length?items.map(i=>'<details class="cert-group browse-group" data-device="'+esc(i.deviceId)+'"><summary><span class="device-avatar">PC</span><span><span class="cell-main">'+esc(i.deviceName)+'</span><span class="cell-sub">'+esc(i.username||"")+'</span></span>'+
+    '<span class="status-pill '+(Number(i.visits)?'pill-green':'pill-gray')+'">'+Number(i.visits||0)+' página(s)</span><span class="status-pill pill-gray">'+Number(i.sites||0)+' site(s)</span><span class="cell-sub">Último acesso: '+esc(i.lastVisit?formatDeviceDate(i.lastVisit):"—")+'</span><span class="cert-chev">›</span></summary>'+
+    '<div class="cert-group-body"><div class="toolbar" style="padding:12px 22px 0"><input class="search-input browse-search" data-device="'+esc(i.deviceId)+'" placeholder="Pesquisar site, título ou endereço"></div><div class="browse-result" data-device="'+esc(i.deviceId)+'"><div class="empty-state">Carregando...</div></div></div></details>').join('')
+   :'<div class="empty-state">Nenhum computador cadastrado.</div>')+'</section>';
+ }catch(e){box.innerHTML=failBox(e)}
+}
+async function loadBrowsing(deviceId,q){
+ const target=[...document.querySelectorAll(".browse-result")].find(x=>x.dataset.device===deviceId);
+ if(!target)return;
+ try{
+  const r=await fetchJson(apiUrl("/admin/browsing?deviceId="+encodeURIComponent(deviceId)+"&days="+(state.browsingDays||1)+(q?"&q="+encodeURIComponent(q):"")));
+  const top=(r.topSites||[]).map(t=>'<span class="status-pill pill-gray">'+esc(t.hostname)+' · '+Number(t.visits)+'</span>').join(' ');
+  target.innerHTML=(top?'<div style="padding:10px 22px;display:flex;flex-wrap:wrap;gap:6px"><b class="cell-sub" style="width:100%">Sites mais acessados</b>'+top+'</div>':'')+
+   (r.items.length?'<div class="table-wrap"><table><thead><tr><th>HORÁRIO</th><th>SITE</th><th>ENDEREÇO</th><th>NAVEGADOR</th><th>USUÁRIO</th></tr></thead><tbody>'+
+   r.items.map(v=>'<tr><td>'+esc(formatDeviceDate(v.occurredAt))+'</td><td><span class="cell-main">'+esc(v.hostname)+'</span>'+(v.title?'<span class="cell-sub">'+esc(v.title)+'</span>':'')+'</td><td><span class="cell-sub" title="'+esc(v.url)+'">'+esc(String(v.url||"").length>80?String(v.url).slice(0,80)+"…":v.url)+'</span></td><td>'+esc(v.browser)+'</td><td>'+esc(v.windowsUser)+'</td></tr>').join('')+
+   '</tbody></table></div>'+(r.items.length>=300?'<p class="cell-sub" style="padding:8px 22px">Mostrando os 300 acessos mais recentes. Use a pesquisa para filtrar.</p>':''):'<div class="empty-state">Nenhum acesso encontrado no período.</div>');
+ }catch(e){target.innerHTML=failBox(e)}
 }function pageAudit(){return head("CENTRO DE EVENTOS","Auditoria e alertas","Ações administrativas, alterações de política, eventos de segurança e alertas dos computadores.",'<button class="btn btn-secondary btn-small" data-action="refresh-audit">↻ Atualizar</button>')+'<div id="auditRoot"><div class="empty-state">Carregando...</div></div>'}
 async function refreshAudit(){
  const box=$("#auditRoot");if(!box)return;
@@ -408,7 +434,7 @@ demo.email.map(m=>'<div class="switch-row"><div><b>'+esc(m.mailbox)+'</b><small>
 '<section class="card card-pad">'+cardHead("Alertas e destinatários","Notificação de incidentes")+
 '<div class="form-stack"><div class="field"><label>E-mail principal de TI</label><input disabled value="ti@costalog.com.br"></div><div class="field"><label>Alertas críticos</label><input disabled value="Imediatos"></div><div class="field"><label>Resumo operacional</label><input disabled value="Diário"></div></div></section></div>'}
 const pages={"overview":pageOverview,"web-blocking":pageWeb,"certificate-rules":pageCertRules,"devices":pageDevices,"health":pageHealth,"installed-certs":pageCerts,"browsing":pageBrowsing,"audit":pageAudit,"downloads":pageDownloads,"device-detail":pageDeviceDetail,"agent-settings":pageAgentSettings,"settings":pageSettings};
-function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");if(v==="overview")refreshDashboard();if(v==="devices")refreshDevices();if(v==="web-blocking")refreshRules("web");if(v==="downloads")refreshRelease();if(v==="device-detail")refreshDeviceDetail();if(v==="health")refreshHealth();if(v==="installed-certs")refreshCerts();if(v==="audit")refreshAudit();if(v==="certificate-rules")refreshRules("cert");}
+function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");if(v==="overview")refreshDashboard();if(v==="devices")refreshDevices();if(v==="web-blocking")refreshRules("web");if(v==="downloads")refreshRelease();if(v==="device-detail")refreshDeviceDetail();if(v==="health")refreshHealth();if(v==="installed-certs")refreshCerts();if(v==="audit")refreshAudit();if(v==="browsing")refreshBrowsing();if(v==="certificate-rules")refreshRules("cert");}
 function validHost(h){return /^(?=.{1,253}$)(\*\.)?([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(h.trim())}
 function publishMessage(res,action){
  if(res&&res.policyRevision)return action+" e publicada (política "+res.policyRevision+"). Os computadores recebem em cerca de 1 minuto.";
@@ -627,12 +653,18 @@ $("#viewRoot").addEventListener("click",e=>{
  if(e.target.closest('[data-action="refresh-health"]')){refreshHealth();return}
  if(e.target.closest('[data-action="refresh-certs"]')){refreshCerts();return}
  if(e.target.closest('[data-action="refresh-audit"]')){refreshAudit();return}
+ if(e.target.closest('[data-action="refresh-browsing"]')){refreshBrowsing();return}
  const dl=e.target.closest('[data-action="download-installer"]');
  if(dl){downloadInstaller(dl);return}
  if(e.target.closest('[data-action="refresh-devices"]')){refreshDevices();return}
  if(e.target.closest('[data-action="refresh"]')){refreshDashboard();return}
 });
+$("#viewRoot").addEventListener("toggle",e=>{
+ const g=e.target;
+ if(g.classList&&g.classList.contains("browse-group")&&g.open)loadBrowsing(g.dataset.device,"");
+},true);
 $("#viewRoot").addEventListener("input",e=>{
+ if(e.target.classList.contains("browse-search")){const id=e.target.dataset.device,v=e.target.value;clearTimeout(loadBrowsing.timer);loadBrowsing.timer=setTimeout(()=>loadBrowsing(id,v.trim()),350);return}
  if(e.target.id==="certSearch"){state.certQuery=e.target.value;const g=$("#certGroups");if(g)g.innerHTML=renderCertGroups();return}
  if(e.target.id==="deviceSearch"){
   state.deviceQuery=e.target.value;
@@ -641,6 +673,7 @@ $("#viewRoot").addEventListener("input",e=>{
  }
 });
 $("#viewRoot").addEventListener("change",e=>{
+ if(e.target.id==="browsingDays"){state.browsingDays=Number(e.target.value)||1;refreshBrowsing();return}
  if(e.target.id==="deviceFilter"){
   state.deviceFilter=e.target.value;
   const grid=$("#deviceGrid");

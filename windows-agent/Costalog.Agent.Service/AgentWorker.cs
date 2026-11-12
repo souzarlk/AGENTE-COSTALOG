@@ -24,6 +24,7 @@ public sealed class AgentWorker : BackgroundService
     DateTimeOffset _lastFailure = DateTimeOffset.MinValue;
     DateTimeOffset _lastUpdateCheck = DateTimeOffset.MinValue;
     DateTimeOffset _lastWindowsEventScan = DateTimeOffset.MinValue;
+    DateTimeOffset _lastBrowsingScan = DateTimeOffset.MinValue;
     string? _attemptedUpdateVersion;
     DateTimeOffset _attemptedUpdateAt = DateTimeOffset.MinValue;
 
@@ -63,6 +64,7 @@ public sealed class AgentWorker : BackgroundService
                 await CheckUninstallApproval(cfg, stop);
                 await CheckForUpdate(cfg, stop);
                 await ScanWindowsEvents(cfg, stop);
+                await ScanBrowsing(cfg, stop);
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested)
             {
@@ -427,6 +429,82 @@ public sealed class AgentWorker : BackgroundService
         );
 
         await ApplyWebBlocking(c, rev, webRules, ct);
+    }
+
+    // ===== Atividade de navegação =====
+    // A cada 5 minutos envia as visitas novas do histórico de cada navegador/usuário.
+    // O ponto de partida de cada navegador fica salvo, então nada é enviado duas vezes.
+    async Task ScanBrowsing(AgentConfig c, CancellationToken ct)
+    {
+        if (c.InstallMode != "certificate-and-web")
+            return;
+
+        if (DateTimeOffset.UtcNow - _lastBrowsingScan < TimeSpan.FromMinutes(5))
+            return;
+
+        _lastBrowsingScan = DateTimeOffset.UtcNow;
+
+        var cursorPath = Path.Combine(AgentConfigStore.PrivateRoot, "browsing-cursors.json");
+        var cursors = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            if (File.Exists(cursorPath))
+                cursors = JsonSerializer.Deserialize<Dictionary<string, long>>(File.ReadAllText(cursorPath))
+                    ?? cursors;
+        }
+        catch
+        {
+        }
+
+        var firstRunStart = DateTime.UtcNow.AddHours(-24).Ticks;
+
+        foreach (var source in BrowserHistoryReader.FindSources())
+        {
+            try
+            {
+                var since = new DateTime(
+                    cursors.TryGetValue(source.Key, out var ticks) ? ticks : firstRunStart,
+                    DateTimeKind.Utc);
+
+                var (visits, last) = BrowserHistoryReader.Read(source, since, 1000);
+
+                for (var i = 0; i < visits.Count; i += 200)
+                {
+                    var batch = visits.Skip(i).Take(200).Select(v => new
+                    {
+                        occurredAt = v.TimeUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+                        url = v.Url,
+                        title = v.Title,
+                        browser = v.Browser,
+                        windowsUser = v.WindowsUser
+                    }).ToArray();
+
+                    using var req = Request(c, HttpMethod.Post, "api/v1/device/browsing-history", new { items = batch });
+                    using var res = await _http.SendAsync(req, ct);
+                    await EnsureOk(res, "Histórico de navegação recusado.", ct);
+                }
+
+                if (last is not null)
+                {
+                    cursors[source.Key] = last.Value.Ticks;
+                    File.WriteAllText(cursorPath, JsonSerializer.Serialize(cursors));
+                }
+                else if (!cursors.ContainsKey(source.Key))
+                {
+                    cursors[source.Key] = since.Ticks;
+                    File.WriteAllText(cursorPath, JsonSerializer.Serialize(cursors));
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                _log.LogWarning("Falha ao ler o histórico de {Browser}: {Message}", source.Browser, e.Message);
+            }
+        }
     }
 
     // ===== Eventos críticos do Windows e falhas do Office =====

@@ -172,6 +172,18 @@ app.use(errorHandler);
 // INICIALIZAÇÃO
 // =====================================================
 
+// Limpeza diária do histórico de navegação (BROWSING_RETENTION_DAYS, padrão 90 dias).
+async function cleanupBrowsing() {
+  const days = Math.max(7, Number(process.env.BROWSING_RETENTION_DAYS || 90));
+  try {
+    await query("DELETE FROM browsing_events WHERE occurred_at < NOW(3) - INTERVAL ? DAY", [days]);
+  } catch (error) {
+    console.error("AGENTE COSTALOG limpeza do histórico falhou:", error.message);
+  }
+}
+setTimeout(cleanupBrowsing, 60 * 1000).unref();
+setInterval(cleanupBrowsing, 6 * 60 * 60 * 1000).unref();
+
 const port = Number(process.env.PORT || 8080);
 const host = process.env.HOST || "0.0.0.0";
 
