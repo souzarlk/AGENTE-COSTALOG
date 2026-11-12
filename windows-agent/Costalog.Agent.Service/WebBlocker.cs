@@ -1,11 +1,12 @@
 using System.Diagnostics;
+using System.Management;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32;
 
 namespace Costalog.Agent.Service;
 
-public sealed record WebBlockResult(bool Changed, bool Tampered, int BlockedHosts, string? Error);
+public sealed record WebBlockResult(bool Changed, bool Tampered, int BlockedHosts, int BrowsersRefreshed, string? Error);
 
 // Aplica a lista de sites bloqueados recebida na política assinada:
 // 1) políticas oficiais dos navegadores (Chrome, Edge, Brave e Firefox);
@@ -76,7 +77,18 @@ public static class WebBlocker
             }
         }
 
-        try { changed |= ApplyHostsFile(hosts); }
+        var refreshed = 0;
+
+        try
+        {
+            if (ApplyHostsFile(hosts))
+            {
+                changed = true;
+                // Derruba as conexões já abertas para que o bloqueio valha também
+                // para quem estava com o site aberto.
+                refreshed = RestartBrowserNetwork();
+            }
+        }
         catch (Exception e) { errors.Add("hosts: " + e.Message); }
 
         // Mesma lista já aplicada antes e, mesmo assim, algo precisou ser corrigido:
@@ -88,6 +100,7 @@ public static class WebBlocker
             changed,
             tampered,
             hosts.Length,
+            refreshed,
             errors.Count == 0 ? null : string.Join("; ", errors));
     }
 
@@ -241,6 +254,49 @@ public static class WebBlocker
         File.WriteAllText(path, desired, new UTF8Encoding(false));
         FlushDns();
         return true;
+    }
+
+    // Reinicia somente o processo de rede dos navegadores Chromium (Chrome, Edge, Brave, Opera).
+    // O navegador o recria na hora: abas e janelas continuam abertas, mas o cache de DNS
+    // e as conexões guardadas são descartados, então o site bloqueado para de carregar.
+    static int RestartBrowserNetwork()
+    {
+        var restarted = 0;
+
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT ProcessId, CommandLine FROM Win32_Process WHERE " +
+                "Name='chrome.exe' OR Name='msedge.exe' OR Name='brave.exe' OR Name='opera.exe'");
+            using var results = searcher.Get();
+
+            foreach (ManagementObject item in results)
+            {
+                using (item)
+                {
+                    var commandLine = item["CommandLine"] as string;
+
+                    if (commandLine is null ||
+                        !commandLine.Contains("network.mojom.NetworkService", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    try
+                    {
+                        using var process = Process.GetProcessById(Convert.ToInt32(item["ProcessId"]));
+                        process.Kill();
+                        restarted++;
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return restarted;
     }
 
     static void FlushDns()

@@ -445,9 +445,10 @@ public sealed class AgentWorker : BackgroundService
 
         if (result.Changed)
             _log.LogInformation(
-                "Bloqueio de sites aplicado (política {Revision}): {Count} domínio(s).",
+                "Bloqueio de sites aplicado (política {Revision}): {Count} domínio(s); navegadores atualizados: {Browsers}.",
                 revision,
-                result.BlockedHosts);
+                result.BlockedHosts,
+                result.BrowsersRefreshed);
 
         if (result.Tampered)
         {

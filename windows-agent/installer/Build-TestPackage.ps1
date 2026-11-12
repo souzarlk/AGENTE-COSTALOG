@@ -6,7 +6,7 @@ param(
     [string]$ApiBaseUrl = "http://localhost:8080",
     [ValidateSet("certificate", "certificate-and-web")]
     [string]$InstallMode = "certificate-and-web",
-    [string]$AgentVersion = "0.2.1",
+    [string]$AgentVersion = "0.2.2",
     [string]$OutputDirectory = (Join-Path ([Environment]::GetFolderPath("Desktop")) "AGENTE-COSTALOG-teste")
 )
 
