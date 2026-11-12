@@ -25,6 +25,7 @@ public sealed class AgentWorker : BackgroundService
     DateTimeOffset _lastUpdateCheck = DateTimeOffset.MinValue;
     DateTimeOffset _lastWindowsEventScan = DateTimeOffset.MinValue;
     DateTimeOffset _lastBrowsingScan = DateTimeOffset.MinValue;
+    readonly Dictionary<string, DateTime> _lastAttemptSent = new(StringComparer.OrdinalIgnoreCase);
     string? _attemptedUpdateVersion;
     DateTimeOffset _attemptedUpdateAt = DateTimeOffset.MinValue;
 
@@ -65,6 +66,7 @@ public sealed class AgentWorker : BackgroundService
                 await CheckForUpdate(cfg, stop);
                 await ScanWindowsEvents(cfg, stop);
                 await ScanBrowsing(cfg, stop);
+                await FlushBlockedAttempts(cfg, stop);
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested)
             {
@@ -431,6 +433,48 @@ public sealed class AgentWorker : BackgroundService
         await ApplyWebBlocking(c, rev, webRules, ct);
     }
 
+    // ===== Tentativas de acesso a sites bloqueados =====
+    // Envia as tentativas capturadas pelo ouvinte local (no máximo 1 por site a cada 2 minutos).
+    async Task FlushBlockedAttempts(AgentConfig c, CancellationToken ct)
+    {
+        string? user = null;
+
+        while (BlockedSiteListener.TryDequeue(out var attempt))
+        {
+            if (_lastAttemptSent.TryGetValue(attempt.Host, out var last) &&
+                attempt.TimeUtc - last < TimeSpan.FromMinutes(2))
+                continue;
+
+            _lastAttemptSent[attempt.Host] = attempt.TimeUtc;
+            user ??= FirstWmi("SELECT UserName FROM Win32_ComputerSystem")?.GetValueOrDefault("UserName")?.ToString() ?? "";
+
+            try
+            {
+                using var req = Request(c, HttpMethod.Post, "api/v1/device/browsing-events", new
+                {
+                    hostname = attempt.Host,
+                    decision = "blocked",
+                    policyRevision = c.LastPolicyRevision,
+                    ruleName = "",
+                    occurredAt = attempt.TimeUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+                    windowsUser = user,
+                    source = "Bloqueio"
+                });
+
+                using var res = await _http.SendAsync(req, ct);
+                await EnsureOk(res, "Tentativa de acesso recusada.", ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                _log.LogWarning("Falha ao enviar tentativa de acesso bloqueado: {Message}", e.Message);
+            }
+        }
+    }
+
     // ===== Atividade de navegação =====
     // A cada 5 minutos envia as visitas novas do histórico de cada navegador/usuário.
     // O ponto de partida de cada navegador fica salvo, então nada é enviado duas vezes.
@@ -444,7 +488,7 @@ public sealed class AgentWorker : BackgroundService
 
         _lastBrowsingScan = DateTimeOffset.UtcNow;
 
-        var cursorPath = Path.Combine(AgentConfigStore.PrivateRoot, "browsing-cursors.json");
+        var cursorPath = Path.Combine(AgentConfigStore.PrivateRoot, "browsing-cursors-v2.json");
         var cursors = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
 
         try
@@ -457,7 +501,8 @@ public sealed class AgentWorker : BackgroundService
         {
         }
 
-        var firstRunStart = DateTime.UtcNow.AddHours(-24).Ticks;
+        // Primeira leitura de cada navegador: últimos 30 dias (a API ignora visitas repetidas).
+        var firstRunStart = DateTime.UtcNow.AddDays(-30).Ticks;
 
         foreach (var source in BrowserHistoryReader.FindSources())
         {
@@ -467,7 +512,7 @@ public sealed class AgentWorker : BackgroundService
                     cursors.TryGetValue(source.Key, out var ticks) ? ticks : firstRunStart,
                     DateTimeKind.Utc);
 
-                var (visits, last) = BrowserHistoryReader.Read(source, since, 1000);
+                var (visits, last) = BrowserHistoryReader.Read(source, since, 3000);
 
                 for (var i = 0; i < visits.Count; i += 200)
                 {
@@ -718,7 +763,14 @@ public sealed class AgentWorker : BackgroundService
                 .ToArray()
             : Array.Empty<string>();
 
-        var result = WebBlocker.Apply(blocked);
+        // Com o ouvinte local ativo, os sites bloqueados apontam para 127.0.0.1 e as
+        // tentativas de acesso são registradas; sem ele, para 0.0.0.0.
+        BlockedSiteListener.SetBlocked(blocked.Select(h => h.Trim().ToLowerInvariant().TrimStart('*', '.')).ToArray());
+
+        if (blocked.Length > 0)
+            BlockedSiteListener.EnsureStarted();
+
+        var result = WebBlocker.Apply(blocked, BlockedSiteListener.HttpsActive ? "127.0.0.1" : "0.0.0.0");
 
         if (result.Error is not null)
             _log.LogWarning("Falha ao aplicar bloqueio de sites: {Error}", result.Error);

@@ -93,20 +93,22 @@ router.post("/browsing-history",async(req,res,next)=>{try{
   let host="";
   try{const u=new URL(v.url);if(u.protocol!=="http:"&&u.protocol!=="https:")continue;host=u.hostname.toLowerCase()}catch{continue}
   if(!host)continue;
-  rows.push([uuid(),req.device.id,host.slice(0,253),"allowed",req.device.policyRevision||0,"",new Date(v.occurredAt),v.url.slice(0,2048),v.title.slice(0,300),v.browser,v.windowsUser]);
+  const when=new Date(v.occurredAt),url=v.url.slice(0,2048);
+  const key=crypto.createHash("sha1").update(v.browser+"|"+v.windowsUser+"|"+when.getTime()+"|"+url).digest("hex");
+  rows.push([uuid(),req.device.id,host.slice(0,253),"allowed",req.device.policyRevision||0,"",when,url,v.title.slice(0,300),v.browser,v.windowsUser,key]);
  }
  for(let i=0;i<rows.length;i+=100){
   const chunk=rows.slice(i,i+100);
-  await query("INSERT INTO browsing_events(id,device_id,hostname,decision,policy_revision,rule_name,occurred_at,url,page_title,browser,windows_user) VALUES "+chunk.map(()=>"(?,?,?,?,?,?,?,?,?,?,?)").join(","),chunk.flat());
+  await query("INSERT IGNORE INTO browsing_events(id,device_id,hostname,decision,policy_revision,rule_name,occurred_at,url,page_title,browser,windows_user,visit_key) VALUES "+chunk.map(()=>"(?,?,?,?,?,?,?,?,?,?,?,?)").join(","),chunk.flat());
  }
  res.status(202).json({accepted:true,stored:rows.length});
  }catch(e){next(e)}});
 router.post("/browsing-events",async(req,res,next)=>{try{
- const x=z.object({hostname:z.string().min(1).max(253),decision:z.enum(["allowed","blocked"]),policyRevision:z.number().int().min(0).default(0),ruleName:z.string().max(160).default(""),occurredAt:z.string().datetime().optional()}).strict().parse(req.body);
+ const x=z.object({hostname:z.string().min(1).max(253),decision:z.enum(["allowed","blocked"]),policyRevision:z.number().int().min(0).default(0),ruleName:z.string().max(160).default(""),occurredAt:z.string().datetime().optional(),windowsUser:z.string().max(160).default(""),source:z.string().max(40).default("")}).strict().parse(req.body);
  if(/[/:?#@]/.test(x.hostname))return res.status(400).json({message:"Envie somente hostname/domínio, sem URL completa."});
  await transaction(async tx=>{
-  await tx.query("INSERT INTO browsing_events(id,device_id,hostname,decision,policy_revision,rule_name,occurred_at) VALUES(?,?,?,?,?,?,?)",[uuid(),req.device.id,x.hostname.toLowerCase(),x.decision,x.policyRevision,x.ruleName,x.occurredAt||new Date().toISOString()]);
-  if(x.decision==="blocked")await tx.query("INSERT INTO device_events(id,device_id,event_type,severity,title,message,details) VALUES(?,?,?,'warning',?,?,?)",[uuid(),req.device.id,"browser_navigation_blocked","Navegação bloqueada",x.hostname,JSON.stringify({hostname:x.hostname,ruleName:x.ruleName,policyRevision:x.policyRevision})]);
+  await tx.query("INSERT INTO browsing_events(id,device_id,hostname,decision,policy_revision,rule_name,occurred_at,url,page_title,browser,windows_user) VALUES(?,?,?,?,?,?,?,?,?,?,?)",[uuid(),req.device.id,x.hostname.toLowerCase(),x.decision,x.policyRevision,x.ruleName,x.occurredAt||new Date().toISOString(),"",x.decision==="blocked"?"Tentativa de acesso bloqueada":"",x.source,x.windowsUser]);
+  if(x.decision==="blocked")await tx.query("INSERT INTO device_events(id,device_id,event_type,severity,title,message,details) VALUES(?,?,?,'warning',?,?,?)",[uuid(),req.device.id,"browser_navigation_blocked","Tentativa de acesso a site bloqueado",x.hostname+(x.windowsUser?" ("+x.windowsUser+")":""),JSON.stringify({hostname:x.hostname,ruleName:x.ruleName,policyRevision:x.policyRevision,windowsUser:x.windowsUser})]);
  });
  res.status(202).json({accepted:true});
  }catch(e){next(e)}});

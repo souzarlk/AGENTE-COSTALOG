@@ -37,7 +37,7 @@ public static class WebBlocker
 
     const uint RP_FORCE = 1;
 
-    public static WebBlockResult Apply(IEnumerable<string> hostnames)
+    public static WebBlockResult Apply(IEnumerable<string> hostnames, string redirectAddress = "0.0.0.0")
     {
         var hosts = hostnames
             .Select(h => h.Trim().ToLowerInvariant())
@@ -47,7 +47,7 @@ public static class WebBlocker
             .OrderBy(h => h, StringComparer.Ordinal)
             .ToArray();
 
-        var signature = string.Join("|", hosts);
+        var signature = redirectAddress + "|" + string.Join("|", hosts);
         var errors = new List<string>();
         var changed = false;
 
@@ -81,7 +81,7 @@ public static class WebBlocker
 
         try
         {
-            if (ApplyHostsFile(hosts))
+            if (ApplyHostsFile(hosts, redirectAddress))
             {
                 changed = true;
                 // Derruba as conexões já abertas para que o bloqueio valha também
@@ -191,7 +191,7 @@ public static class WebBlocker
         return values.OrderBy(v => v.Index).Select(v => v.Value).ToArray();
     }
 
-    static bool ApplyHostsFile(string[] hosts)
+    static bool ApplyHostsFile(string[] hosts, string redirectAddress)
     {
         var path = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.System),
@@ -228,10 +228,10 @@ public static class WebBlocker
 
             foreach (var host in hosts)
             {
-                sb.Append("0.0.0.0 ").Append(host).Append("\r\n");
+                sb.Append(redirectAddress).Append(' ').Append(host).Append("\r\n");
 
                 if (!host.StartsWith("www.", StringComparison.Ordinal))
-                    sb.Append("0.0.0.0 www.").Append(host).Append("\r\n");
+                    sb.Append(redirectAddress).Append(" www.").Append(host).Append("\r\n");
             }
 
             sb.Append(HostsEnd);
