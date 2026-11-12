@@ -23,6 +23,7 @@ public sealed class AgentWorker : BackgroundService
     DateTimeOffset _lastCertUpload = DateTimeOffset.MinValue;
     DateTimeOffset _lastFailure = DateTimeOffset.MinValue;
     DateTimeOffset _lastUpdateCheck = DateTimeOffset.MinValue;
+    DateTimeOffset _lastWindowsEventScan = DateTimeOffset.MinValue;
     string? _attemptedUpdateVersion;
     DateTimeOffset _attemptedUpdateAt = DateTimeOffset.MinValue;
 
@@ -61,6 +62,7 @@ public sealed class AgentWorker : BackgroundService
                 await FlushEvents(cfg, stop);
                 await CheckUninstallApproval(cfg, stop);
                 await CheckForUpdate(cfg, stop);
+                await ScanWindowsEvents(cfg, stop);
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested)
             {
@@ -254,7 +256,7 @@ public sealed class AgentWorker : BackgroundService
 
         var body = new
         {
-            cpuPercent = (double?)null,
+            cpuPercent = ReadCpuPercent(),
             memoryUsedBytes = hw.MemoryUsedBytes,
             memoryTotalBytes = hw.RamTotalBytes,
             uptimeSeconds = hw.UptimeSeconds,
@@ -425,6 +427,53 @@ public sealed class AgentWorker : BackgroundService
         );
 
         await ApplyWebBlocking(c, rev, webRules, ct);
+    }
+
+    // ===== Eventos críticos do Windows e falhas do Office =====
+    // A cada 10 minutos lê os logs do Windows a partir do último ponto enviado.
+    async Task ScanWindowsEvents(AgentConfig c, CancellationToken ct)
+    {
+        if (DateTimeOffset.UtcNow - _lastWindowsEventScan < TimeSpan.FromMinutes(10))
+            return;
+
+        _lastWindowsEventScan = DateTimeOffset.UtcNow;
+        var scanStarted = DateTime.UtcNow;
+        var cursorPath = Path.Combine(AgentConfigStore.PrivateRoot, "windows-events-cursor.txt");
+        var since = scanStarted.AddHours(-24);
+
+        try
+        {
+            if (File.Exists(cursorPath) &&
+                long.TryParse(File.ReadAllText(cursorPath).Trim(), out var ticks) &&
+                ticks > since.Ticks)
+                since = new DateTime(ticks, DateTimeKind.Utc);
+
+            const int limit = 25;
+            var found = WindowsEventScanner.Read(since, limit);
+
+            foreach (var e in found)
+            {
+                await ReportEvent(
+                    c,
+                    "windows_event",
+                    e.Title,
+                    e.Message,
+                    new { provider = e.Provider, eventId = e.EventId, log = e.Log, occurredAt = e.TimeUtc.ToString("O") },
+                    ct,
+                    e.Severity);
+            }
+
+            var cursor = found.Count >= limit ? found.Max(x => x.TimeUtc) : scanStarted;
+            File.WriteAllText(cursorPath, cursor.Ticks.ToString());
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            _log.LogWarning("Falha ao ler eventos do Windows: {Message}", e.Message);
+        }
     }
 
     // ===== Atualização automática =====
@@ -886,7 +935,8 @@ public sealed class AgentWorker : BackgroundService
         string title,
         string message,
         object details,
-        CancellationToken ct)
+        CancellationToken ct,
+        string severity = "warning")
     {
         using var req = Request(
             c,
@@ -895,7 +945,7 @@ public sealed class AgentWorker : BackgroundService
             new
             {
                 eventType = type,
-                severity = "warning",
+                severity,
                 title,
                 message,
                 details
@@ -1062,6 +1112,22 @@ public sealed class AgentWorker : BackgroundService
         );
     }
 
+    static double? ReadCpuPercent()
+    {
+        try
+        {
+            var value = FirstWmi(
+                "SELECT PercentProcessorTime FROM Win32_PerfFormattedData_PerfOS_Processor WHERE Name='_Total'"
+            )?.GetValueOrDefault("PercentProcessorTime");
+
+            return value is null ? null : Math.Clamp(Convert.ToDouble(value), 0d, 100d);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     static Dictionary<string, object?>? FirstWmi(string query)
     {
         try
@@ -1106,6 +1172,7 @@ public sealed class AgentWorker : BackgroundService
     static object[] ReadDisks()
     {
         var list = new List<object>();
+        var physical = StorageHealth.ReadByDriveLetter();
 
         foreach (var d in DriveInfo.GetDrives()
             .Where(x => x.DriveType == DriveType.Fixed))
@@ -1127,12 +1194,14 @@ public sealed class AgentWorker : BackgroundService
                     driveLetter = d.Name,
                     volumeLabel = d.VolumeLabel,
                     filesystem = d.DriveFormat,
-                    mediaType = "fixed",
+                    mediaType = physical.TryGetValue(d.Name[..1].ToUpperInvariant(), out var ph) ? ph.MediaType : "fixed",
                     totalBytes = total,
                     freeBytes = free,
                     usedPercent = used,
-                    smartHealth = "unknown",
-                    temperatureC = (double?)null
+                    smartHealth = ph?.Health ?? "unknown",
+                    temperatureC = ph?.TemperatureC,
+                    wearPercent = ph?.WearPercent,
+                    diskModel = ph?.Model ?? ""
                 });
             }
             catch

@@ -56,6 +56,27 @@ router.get("/agent-release",async(req,res,next)=>{try{
  res.json(r?{version:r.version,size:r.size,sha256:r.sha256,publishedAt:r.publishedAt}:{version:null});
  }catch(e){next(e)}});
 
+router.get("/devices/:id",async(req,res,next)=>{try{
+ const id=req.params.id;
+ const d=await query("SELECT id,device_name AS deviceName,windows_username AS username,domain_name AS domainName,os_caption AS osCaption,os_version AS osVersion,os_build AS osBuild,manufacturer,model,cpu_name AS cpuName,ram_total_bytes AS ramTotalBytes,agent_version AS agentVersion,install_mode AS installMode,status,policy_revision AS policyRevision,first_boot_at AS firstBootAt,last_boot_at AS lastBootAt,last_seen_at AS lastSeenAt,last_ip AS lastIp,enrolled_at AS enrolledAt FROM devices WHERE id=?",[id]);
+ if(!d.rowCount)return res.status(404).json({message:"Computador não encontrado."});
+ const [t,disks,certs,events]=await Promise.all([
+  query("SELECT cpu_percent AS cpuPercent,memory_used_bytes AS memoryUsedBytes,memory_total_bytes AS memoryTotalBytes,uptime_seconds AS uptimeSeconds,network,collected_at AS collectedAt FROM telemetry_snapshots WHERE device_id=? ORDER BY collected_at DESC LIMIT 1",[id]),
+  query("SELECT drive_letter AS driveLetter,volume_label AS volumeLabel,filesystem,media_type AS mediaType,disk_model AS diskModel,total_bytes AS totalBytes,free_bytes AS freeBytes,used_percent AS usedPercent,smart_health AS smartHealth,temperature_c AS temperatureC,wear_percent AS wearPercent,collected_at AS collectedAt FROM device_disks WHERE device_id=? ORDER BY drive_letter",[id]),
+  query("SELECT subject_name AS subjectName,issuer_name AS issuerName,serial_number AS serialNumber,thumbprint_sha1 AS thumbprintSha1,not_before AS notBefore,not_after AS notAfter,store_name AS storeName,has_private_key AS hasPrivateKey FROM installed_certificates WHERE device_id=? ORDER BY not_after",[id]),
+  query("SELECT event_type AS eventType,severity,title,message,created_at AS createdAt FROM device_events WHERE device_id=? ORDER BY created_at DESC LIMIT 40",[id])
+ ]);
+ res.json({device:d.rows[0],telemetry:t.rows[0]||null,disks:disks.rows,certificates:certs.rows,events:events.rows});
+ }catch(e){next(e)}});
+
+router.get("/health",async(req,res,next)=>{try{
+ const [disks,events]=await Promise.all([
+  query("SELECT k.device_id AS deviceId,d.device_name AS deviceName,k.drive_letter AS driveLetter,k.media_type AS mediaType,k.disk_model AS diskModel,k.total_bytes AS totalBytes,k.free_bytes AS freeBytes,k.used_percent AS usedPercent,k.smart_health AS smartHealth,k.temperature_c AS temperatureC,k.wear_percent AS wearPercent,k.collected_at AS collectedAt FROM device_disks k JOIN devices d ON d.id=k.device_id WHERE d.status='active' ORDER BY k.used_percent DESC"),
+  query("SELECT e.device_id AS deviceId,d.device_name AS deviceName,e.event_type AS eventType,e.severity,e.title,e.message,e.created_at AS createdAt FROM device_events e JOIN devices d ON d.id=e.device_id WHERE e.severity IN ('critical','warning') AND e.created_at>NOW(3)-INTERVAL 7 DAY ORDER BY e.created_at DESC LIMIT 200")
+ ]);
+ res.json({disks:disks.rows,events:events.rows});
+ }catch(e){next(e)}});
+
 router.get("/devices",async(req,res,next)=>{try{
  const r=await query("SELECT id,device_name AS deviceName,windows_username AS username,domain_name AS domainName,os_caption AS osCaption,os_version AS osVersion,os_build AS osBuild,manufacturer,model,cpu_name AS cpuName,ram_total_bytes AS ramTotalBytes,agent_version AS agentVersion,install_mode AS installMode,status,policy_revision AS policyRevision,first_boot_at AS firstBootAt,last_boot_at AS lastBootAt,last_seen_at AS lastSeenAt,last_ip AS lastIp,enrolled_at AS enrolledAt FROM devices ORDER BY device_name");
  res.json({items:r.rows});

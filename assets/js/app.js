@@ -55,7 +55,7 @@ const demo={
  {id:3,name:"Assinador corporativo",host:"assinador.costalog.local",scope:"Certificados autorizados",enabled:true}
  ]
 };
-const titles={"overview":"Visão geral","web-blocking":"Bloqueio de sites","certificate-rules":"Sites para certificados","devices":"Computadores","health":"Saúde dos computadores","installed-certs":"Certificados na máquina","browsing":"Atividade de navegação","audit":"Auditoria e alertas","downloads":"Download do agente","agent-settings":"Configurações agente","settings":"Configurações gerais"};
+const titles={"overview":"Visão geral","web-blocking":"Bloqueio de sites","certificate-rules":"Sites para certificados","devices":"Computadores","health":"Saúde dos computadores","installed-certs":"Certificados na máquina","browsing":"Atividade de navegação","audit":"Auditoria e alertas","downloads":"Download do agente","agent-settings":"Configurações agente","settings":"Configurações gerais","device-detail":"Detalhes do computador"};
 function toast(m){const el=$("#toast");el.textContent=m;el.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove("show"),3000)}
 function pill(s){const c=["Online","Permitido","Válido","Ativo","Protegido","Conectado"].includes(s)?"pill-green":["Atenção","Vencendo","Aviso","Aguardando conexão"].includes(s)?"pill-amber":["Bloqueado","Expirado","Crítico","Offline","Falha detectada","Sem comunicação"].includes(s)?"pill-red":"pill-gray";return '<span class="status-pill '+c+'">'+esc(s)+'</span>'}
 function head(k,t,d,a=""){return '<div class="page-heading"><div><div class="eyebrow">'+k+'</div><h1>'+t+'</h1><p>'+d+'</p></div><div class="heading-actions">'+a+'</div></div>'}
@@ -188,7 +188,7 @@ function renderDevices(){
    '<div><span>IP</span><b>'+esc(d.lastIp||"Nao informado")+'</b></div>'+
    '<div><span>VERSAO DO AGENTE</span><b>'+esc(d.agentVersion||"Nao informado")+(state.latestAgent&&d.agentVersion&&compareVersions(d.agentVersion,state.latestAgent)<0?' <small>(atualizando para '+esc(state.latestAgent)+')</small>':'')+'</b></div>'+
    '<div><span>POLÍTICA APLICADA</span><b>'+(Number(d.policyRevision)>0?"Revisão "+esc(d.policyRevision):"Nenhuma ainda")+'</b></div>'+
-   '</div><div class="device-card-foot"><span>Status: '+esc(label)+'</span></div></article>';
+   '</div><div class="device-card-foot"><span>Status: '+esc(label)+'</span><button class="action-link" data-device-detail="'+esc(d.id)+'">Ver detalhes →</button></div></article>';
  }).join("");
 }
 
@@ -228,37 +228,77 @@ async function refreshDevices(){
   const message=$("#deviceFeedback");
   if(message)message.textContent=state.devicesError||("Dispositivos encontrados: "+state.devices.length);
  }
-}function pageHealth(){
- return head("DIAGNOSTICO E MANUTENCAO","Saude dos computadores","Indicadores de armazenamento, hardware, Windows e Microsoft Office.")+
- '<div class="notice-box"><strong>Telemetria ainda nao disponivel.</strong><br>Nenhum agente Windows esta enviando dados reais para esta tela. Os indicadores serao exibidos quando a coleta estiver implementada e os computadores estiverem conectados.</div><br>'+
- '<div class="metric-grid">'+
- metric("ALERTAS CRITICOS","--","Aguardando dados reais","! ")+
- metric("DISCOS ACIMA DE 85%","--","Aguardando dados de armazenamento","D")+
- metric("OFFICE COM ALERTA","--","Aguardando diagnostico do Office","O")+
- metric("SSD COM SAUDE BAIXA","--","Aguardando dados S.M.A.R.T.","S")+
- '</div>'+
- '<div class="split-grid">'+
- '<section class="card card-pad">'+cardHead("Uso de armazenamento","Analise por computador e unidade")+
- '<div class="empty-state">Nenhum dado de armazenamento recebido.</div>'+
- '<p class="cell-sub">A coleta futura podera apresentar espaco total, espaco utilizado e espaco livre por unidade.</p></section>'+
- '<section class="card card-pad">'+cardHead("Unidades e saude SSD","Diagnostico de discos")+
- '<div class="empty-state">Nenhum dado de saude de disco recebido.</div>'+
- '<p class="cell-sub">A disponibilidade de temperatura e vida util depende do hardware e do suporte S.M.A.R.T.</p></section></div>'+
- '<section class="card data-card">'+cardHead("Problemas detectados","Eventos reais do Windows e do Microsoft Office")+
- '<div class="empty-state">Nenhum evento recebido. Isso nao significa que nao existam problemas no computador.</div></section><br>'+
- '<section class="card card-pad">'+cardHead("Manutencao agendada","Rotinas que poderao ser configuradas pela TI")+
- '<div class="notice-box">As rotinas ainda nao estao implementadas. Nenhuma manutencao sera executada automaticamente.</div>'+
- '<div class="switch-row"><div><b>Analise de armazenamento</b><small>Levantamento de uso de disco e diretorios autorizados.</small></div><label class="toggle"><input type="checkbox" disabled><span></span></label></div>'+
- '<div class="switch-row"><div><b>Otimizacao de unidades</b><small>Operacao condicionada ao tipo de unidade e aprovacao da TI.</small></div><label class="toggle"><input type="checkbox" disabled><span></span></label></div>'+
- '<div class="switch-row"><div><b>Verificacao do Microsoft Office</b><small>Monitoramento de versoes, atualizacoes e eventos de falha.</small></div><label class="toggle"><input type="checkbox" disabled><span></span></label></div></section>'
-}function pageCerts(){
- return head("INVENTARIO LOCAL","Certificados presentes na maquina","Inventario dos metadados publicos dos certificados instalados nos computadores.")+
- '<div class="notice-box"><strong>Protecao de certificados:</strong> somente metadados tecnicos publicos poderao ser enviados. Chaves privadas, senhas e arquivos PFX/P12 nunca devem ser coletados ou exportados pelo agente.</div><br>'+
- '<section class="card card-pad">'+
- cardHead("Certificados detectados","Inventario recebido dos computadores")+
- '<div class="empty-state">Nenhum certificado recebido.</div>'+
- '<p class="cell-sub">Os certificados aparecerao aqui quando o agente Windows estiver implementado, conectado e autorizado a enviar os metadados publicos.</p>'+
- '</section>'
+}function fmtBytes(n){n=Number(n);if(!(n>0))return "—";const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return n.toFixed(i>=3?1:0)+" "+u[i]}
+function fmtDuration(sec){sec=Number(sec);if(!(sec>0))return "—";const d=Math.floor(sec/86400),h=Math.floor(sec%86400/3600),m=Math.floor(sec%3600/60);return (d?d+"d ":"")+h+"h "+m+"min"}
+function sevPill(s){return '<span class="status-pill '+(s==="critical"?"pill-red":s==="warning"?"pill-amber":"pill-gray")+'">'+(s==="critical"?"Crítico":s==="warning"?"Atenção":"Info")+'</span>'}
+function healthPill(h){const map={healthy:["Saudável","pill-green"],warning:["Atenção","pill-amber"],unhealthy:["Falha","pill-red"]};const x=map[h]||["Sem dados","pill-gray"];return '<span class="status-pill '+x[1]+'">'+x[0]+'</span>'}
+function usageBar(p){p=Math.max(0,Math.min(100,Number(p)||0));return '<div class="progress"><span style="width:'+p+'%;background:'+(p>=90?'#c72b35':p>=80?'#d99a27':'#22a55a')+'"></span></div>'}
+function diskType(t){return !t||t==="fixed"?"Disco":t}
+function certName(subject){const m=/CN=([^,]+)/i.exec(subject||"");return m?m[1].trim():(subject||"Certificado")}
+function certState(notAfter){const t=new Date(notAfter).getTime();if(!t)return["Sem validade","pill-gray"];const days=(t-Date.now())/86400000;return days<0?["Expirado","pill-red"]:days<=30?["Vence em "+Math.ceil(days)+" dias","pill-amber"]:["Válido","pill-green"]}
+function deviceLink(id,name){return id?'<button class="action-link" data-device-detail="'+esc(id)+'">'+esc(name||"Computador")+'</button>':'<span class="cell-sub">Painel / administração</span>'}
+function failBox(e){return '<div class="card card-pad">Falha ao consultar a API: '+esc(e&&e.message||"erro")+'</div>'}
+function eventsTable(list,withDevice){
+ if(!list.length)return '<div class="empty-state">Nenhum evento registrado.</div>';
+ return '<div class="table-wrap"><table><thead><tr><th>QUANDO</th>'+(withDevice?'<th>COMPUTADOR</th>':'')+'<th>EVENTO</th><th>DETALHE</th><th>NÍVEL</th></tr></thead><tbody>'+
+ list.map(e=>'<tr><td>'+esc(formatDeviceDate(e.createdAt))+'</td>'+(withDevice?'<td>'+deviceLink(e.deviceId,e.deviceName)+'</td>':'')+'<td class="cell-main">'+esc(e.title)+'</td><td>'+esc(e.message)+'</td><td>'+sevPill(e.severity)+'</td></tr>').join('')+'</tbody></table></div>';
+}
+function disksTable(list,withDevice){
+ if(!list.length)return '<div class="empty-state">Nenhuma unidade recebida.</div>';
+ return '<div class="table-wrap"><table><thead><tr>'+(withDevice?'<th>COMPUTADOR</th>':'')+'<th>UNIDADE</th><th>DISCO</th><th>USO</th><th>LIVRE</th><th>SAÚDE</th><th>TEMPERATURA</th><th>DESGASTE (SSD)</th></tr></thead><tbody>'+
+ list.map(k=>'<tr>'+(withDevice?'<td>'+deviceLink(k.deviceId,k.deviceName)+'</td>':'')+'<td><span class="cell-main">'+esc(k.driveLetter)+'</span><span class="cell-sub">'+esc(k.volumeLabel||k.filesystem||"")+'</span></td><td>'+esc(diskType(k.mediaType))+(k.diskModel?'<span class="cell-sub">'+esc(k.diskModel)+'</span>':'')+'</td><td style="min-width:150px">'+usageBar(k.usedPercent)+'<span class="cell-sub">'+Number(k.usedPercent).toFixed(1)+'% de '+fmtBytes(k.totalBytes)+'</span></td><td>'+fmtBytes(k.freeBytes)+'</td><td>'+healthPill(k.smartHealth)+'</td><td>'+(k.temperatureC!=null?Math.round(k.temperatureC)+" °C":"—")+'</td><td>'+(k.wearPercent!=null?Math.round(k.wearPercent)+"% usado":"—")+'</td></tr>').join('')+'</tbody></table></div>';
+}
+function certTable(list,withDevice){
+ if(!list.length)return '<div class="empty-state">Nenhum certificado encontrado.</div>';
+ return '<div class="table-wrap"><table><thead><tr>'+(withDevice?'<th>COMPUTADOR</th>':'')+'<th>CERTIFICADO</th><th>EMISSOR</th><th>VÁLIDO ATÉ</th><th>REPOSITÓRIO</th><th>CHAVE PRIVADA</th><th>SITUAÇÃO</th></tr></thead><tbody>'+
+ list.map(c=>{const st=certState(c.notAfter);return '<tr>'+(withDevice?'<td>'+esc(c.deviceName||"")+'</td>':'')+'<td><span class="cell-main">'+esc(certName(c.subjectName))+'</span><span class="cell-sub">'+esc(c.subjectName)+'</span></td><td>'+esc(certName(c.issuerName))+'</td><td>'+esc(c.notAfter?new Date(c.notAfter).toLocaleDateString("pt-BR"):"—")+'</td><td>'+esc(c.storeName)+'</td><td>'+(c.hasPrivateKey?"Sim":"Não")+'</td><td><span class="status-pill '+st[1]+'">'+esc(st[0])+'</span></td></tr>'}).join('')+'</tbody></table></div>';
+}
+function pageDeviceDetail(){return head("COMPUTADORES","Detalhes do computador","Informações recebidas do agente instalado neste computador.",'<button class="btn btn-secondary btn-small" data-nav="devices">← Voltar</button> <button class="btn btn-secondary btn-small" data-action="refresh-detail">↻ Atualizar</button>')+'<div id="deviceDetail"><div class="empty-state">Carregando...</div></div>'}
+async function refreshDeviceDetail(){
+ const box=$("#deviceDetail");if(!box||!state.detailId)return;
+ try{
+  const r=await fetchJson(apiUrl("/admin/devices/"+encodeURIComponent(state.detailId)));
+  if(state.view!=="device-detail")return;
+  $("#pageTitle").textContent=r.device.deviceName||"Computador";
+  const d=r.device,t=r.telemetry||{},net=t.network||{};
+  const memPct=Number(t.memoryTotalBytes)>0?Math.round(t.memoryUsedBytes*100/t.memoryTotalBytes):null;
+  const online=d.lastSeenAt&&(Date.now()-new Date(d.lastSeenAt).getTime())<5*60000;
+  const crit=r.events.filter(e=>e.severity==="critical").length;
+  const info=[["NOME DO COMPUTADOR",d.deviceName],["USUÁRIO",d.username],["DOMÍNIO / GRUPO",d.domainName],["WINDOWS",(d.osCaption||"")+" "+(d.osVersion||"")],["FABRICANTE / MODELO",(d.manufacturer||"")+" "+(d.model||"")],["PROCESSADOR",d.cpuName],["MEMÓRIA RAM",fmtBytes(d.ramTotalBytes)],["TEMPO LIGADO",fmtDuration(t.uptimeSeconds)],["ÚLTIMO BOOT",formatDeviceDate(d.lastBootAt)],["IP",(net.ipv4||[]).join(", ")||d.lastIp],["GATEWAY",(net.gateways||[]).join(", ")],["DNS",(net.dns||[]).slice(0,3).join(", ")],["VERSÃO DO AGENTE",d.agentVersion],["POLÍTICA APLICADA",Number(d.policyRevision)>0?"Revisão "+d.policyRevision:"Nenhuma"],["CADASTRADO EM",formatDeviceDate(d.enrolledAt)]];
+  box.innerHTML='<div class="metric-grid">'+
+   metric("STATUS",online?"Online":"Offline","Último contato: "+esc(formatDeviceDate(d.lastSeenAt)),"ON")+
+   metric("PROCESSADOR",t.cpuPercent!=null?Math.round(t.cpuPercent)+"%":"—","Uso no último envio","CPU")+
+   metric("MEMÓRIA",memPct!=null?memPct+"%":"—",esc(fmtBytes(t.memoryUsedBytes)+" de "+fmtBytes(t.memoryTotalBytes)),"RAM")+
+   metric("ALERTAS CRÍTICOS",String(crit),"Entre os últimos eventos","!")+'</div>'+
+   '<section class="card card-pad">'+cardHead("Identificação","Hardware, Windows e rede")+'<div class="detail-grid">'+info.map(([k,v])=>'<div class="detail-item"><span>'+k+'</span><b>'+esc(v&&String(v).trim()?v:"—")+'</b></div>').join('')+'</div></section><br>'+
+   '<section class="card data-card">'+cardHead("Armazenamento e saúde dos discos","Uso, tipo de disco e S.M.A.R.T.")+disksTable(r.disks,false)+'</section><br>'+
+   '<section class="card data-card">'+cardHead("Alertas e eventos","Problemas detectados e ações do agente")+eventsTable(r.events,false)+'</section><br>'+
+   '<section class="card data-card">'+cardHead("Certificados na máquina","Somente metadados públicos; nenhuma chave privada é copiada")+certTable(r.certificates,false)+'</section>';
+ }catch(e){box.innerHTML=failBox(e)}
+}
+function pageHealth(){return head("DIAGNÓSTICO E MANUTENÇÃO","Saúde dos computadores","Armazenamento, saúde dos discos, erros do Windows e falhas do Office em todos os computadores.",'<button class="btn btn-secondary btn-small" data-action="refresh-health">↻ Atualizar</button>')+'<div id="healthRoot"><div class="empty-state">Carregando...</div></div>'}
+async function refreshHealth(){
+ const box=$("#healthRoot");if(!box)return;
+ try{
+  const r=await fetchJson(apiUrl("/admin/health"));
+  if(state.view!=="health")return;
+  const full=r.disks.filter(k=>Number(k.usedPercent)>=85),bad=r.disks.filter(k=>k.smartHealth==="warning"||k.smartHealth==="unhealthy"),crit=r.events.filter(e=>e.severity==="critical"),office=r.events.filter(e=>/Office/i.test(e.title));
+  box.innerHTML='<div class="metric-grid">'+metric("ALERTAS CRÍTICOS",String(crit.length),"Últimos 7 dias","!")+metric("DISCOS ACIMA DE 85%",String(full.length),"Unidades com pouco espaço","D")+metric("FALHAS DO OFFICE",String(office.length),"Últimos 7 dias","O")+metric("DISCOS COM ALERTA",String(bad.length),"Saúde S.M.A.R.T.","S")+'</div>'+
+   '<section class="card data-card">'+cardHead("Armazenamento por computador","Todas as unidades, da mais cheia para a mais vazia")+disksTable(r.disks,true)+'</section><br>'+
+   '<section class="card data-card">'+cardHead("Problemas detectados","Alertas críticos e de atenção dos últimos 7 dias")+eventsTable(r.events,true)+'</section>';
+ }catch(e){box.innerHTML=failBox(e)}
+}
+function pageCerts(){return head("INVENTÁRIO LOCAL","Certificados presentes na máquina","Metadados públicos dos certificados instalados em cada computador.",'<button class="btn btn-secondary btn-small" data-action="refresh-certs">↻ Atualizar</button>')+
+ '<div class="notice-box"><strong>Proteção de certificados:</strong> somente metadados públicos são enviados. Chaves privadas, senhas e arquivos PFX/P12 nunca são coletados. O agente envia o inventário ao iniciar e a cada 12 horas.</div><br><div id="certsRoot"><div class="empty-state">Carregando...</div></div>'}
+async function refreshCerts(){
+ const box=$("#certsRoot");if(!box)return;
+ try{
+  const r=await fetchJson(apiUrl("/admin/certificates"));
+  if(state.view!=="installed-certs")return;
+  const list=r.items||[],exp=list.filter(c=>certState(c.notAfter)[0]==="Expirado").length,soon=list.filter(c=>/^Vence/.test(certState(c.notAfter)[0])).length,keys=list.filter(c=>c.hasPrivateKey).length;
+  box.innerHTML='<div class="metric-grid">'+metric("CERTIFICADOS",String(list.length),"Em todos os computadores","CE")+metric("COM CHAVE PRIVADA",String(keys),"Podem assinar / autenticar","KEY")+metric("VENCENDO EM 30 DIAS",String(soon),"Renovar em breve","!")+metric("EXPIRADOS",String(exp),"Sem validade","X")+'</div>'+
+   '<section class="card data-card">'+cardHead("Certificados detectados","Agrupados por computador")+certTable(list,true)+'</section>';
+ }catch(e){box.innerHTML=failBox(e)}
 }function pageBrowsing(){
  return head("VISIBILIDADE DE NAVEGACAO","Atividade de navegacao","Registro de dominios, horarios, dispositivos e decisoes das politicas.")+
  '<div class="notice-box"><strong>Privacidade e transparencia:</strong> o monitoramento deve ser informado aos usuarios e limitado a finalidade corporativa. Nao coletamos conteudo de paginas, formularios, senhas ou cookies.</div><br>'+
@@ -267,23 +307,20 @@ async function refreshDevices(){
  '<div class="empty-state">Nenhum evento de navegacao recebido.</div>'+
  '<p class="cell-sub">Os registros aparecerao aqui quando o agente Windows estiver implementado, conectado e autorizado a enviar eventos.</p>'+
  '</section>'
-}function pageAudit(){
- return head("CENTRO DE EVENTOS","Auditoria e alertas","Historico de alteracoes administrativas, eventos de seguranca e alertas dos dispositivos.")+
- '<div class="metric-grid">'+
- metric("EVENTOS HOJE","--","Aguardando registros reais","EV")+
- metric("BLOQUEIOS","--","Aguardando eventos de bloqueio","BL")+
- metric("INTEGRIDADE","--","Aguardando verificacoes","IN")+
- metric("ALERTAS CRITICOS","--","Aguardando alertas reais","AL")+
- '</div>'+
- '<section class="card data-card">'+
- cardHead("Linha do tempo de seguranca","Eventos registrados pela API")+
- '<div class="empty-state">Nenhum evento de auditoria recebido.</div>'+
- '</section><br>'+
- '<section class="card data-card">'+
- cardHead("Fila de alertas por e-mail","Configuracao de notificacoes")+
- '<div class="notice-box">O envio de e-mails ainda nao esta configurado. Nenhuma notificacao foi enviada ou esta aguardando envio.</div>'+
- '<div class="empty-state">Nenhuma notificacao registrada.</div>'+
- '</section>'
+}function pageAudit(){return head("CENTRO DE EVENTOS","Auditoria e alertas","Ações administrativas, alterações de política, eventos de segurança e alertas dos computadores.",'<button class="btn btn-secondary btn-small" data-action="refresh-audit">↻ Atualizar</button>')+'<div id="auditRoot"><div class="empty-state">Carregando...</div></div>'}
+async function refreshAudit(){
+ const box=$("#auditRoot");if(!box)return;
+ try{
+  const r=await fetchJson(apiUrl("/admin/events?limit=200"));
+  if(state.view!=="audit")return;
+  const list=r.items||[],today=new Date().toDateString();
+  const todayCount=list.filter(e=>new Date(e.createdAt).toDateString()===today).length;
+  const blocked=list.filter(e=>e.eventType==="browser_navigation_blocked").length;
+  const integrity=list.filter(e=>e.eventType==="web_policy_restored"||e.eventType==="uninstall_requested").length;
+  const crit=list.filter(e=>e.severity==="critical").length;
+  box.innerHTML='<div class="metric-grid">'+metric("EVENTOS HOJE",String(todayCount),"Entre os 200 mais recentes","EV")+metric("BLOQUEIOS REGISTRADOS",String(blocked),"Navegação recusada","BL")+metric("INTEGRIDADE",String(integrity),"Bloqueio alterado ou pedido de remoção","IN")+metric("ALERTAS CRÍTICOS",String(crit),"Entre os 200 mais recentes","AL")+'</div>'+
+   '<section class="card data-card">'+cardHead("Linha do tempo","Os 200 eventos mais recentes")+eventsTable(list,true)+'</section>';
+ }catch(e){box.innerHTML=failBox(e)}
 }function pageDownloads(){
  const downloadUrl=String(cfg.agentDownloadUrl||"");
  const hasDownload=downloadUrl.toLowerCase().startsWith("https://");
@@ -324,8 +361,8 @@ demo.email.map(m=>'<div class="switch-row"><div><b>'+esc(m.mailbox)+'</b><small>
 '<div class="form-stack"><div class="field"><label>Retenção dos eventos de navegação</label><select disabled><option>90 dias (proposta inicial)</option></select></div><div class="field"><label>Granularidade de navegação</label><input disabled value="Domínio + horário + decisão + dispositivo"></div><div class="field"><label>Monitoramento de uso</label><input disabled value="Tempo de sessão, uptime e categorias corporativas"></div></div></section>'+
 '<section class="card card-pad">'+cardHead("Alertas e destinatários","Notificação de incidentes")+
 '<div class="form-stack"><div class="field"><label>E-mail principal de TI</label><input disabled value="ti@costalog.com.br"></div><div class="field"><label>Alertas críticos</label><input disabled value="Imediatos"></div><div class="field"><label>Resumo operacional</label><input disabled value="Diário"></div></div></section></div>'}
-const pages={"overview":pageOverview,"web-blocking":pageWeb,"certificate-rules":pageCertRules,"devices":pageDevices,"health":pageHealth,"installed-certs":pageCerts,"browsing":pageBrowsing,"audit":pageAudit,"downloads":pageDownloads,"agent-settings":pageAgentSettings,"settings":pageSettings};
-function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");if(v==="overview")refreshDashboard();if(v==="devices")refreshDevices();if(v==="web-blocking")refreshRules("web");if(v==="downloads")refreshRelease();if(v==="certificate-rules")refreshRules("cert");}
+const pages={"overview":pageOverview,"web-blocking":pageWeb,"certificate-rules":pageCertRules,"devices":pageDevices,"health":pageHealth,"installed-certs":pageCerts,"browsing":pageBrowsing,"audit":pageAudit,"downloads":pageDownloads,"device-detail":pageDeviceDetail,"agent-settings":pageAgentSettings,"settings":pageSettings};
+function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");if(v==="overview")refreshDashboard();if(v==="devices")refreshDevices();if(v==="web-blocking")refreshRules("web");if(v==="downloads")refreshRelease();if(v==="device-detail")refreshDeviceDetail();if(v==="health")refreshHealth();if(v==="installed-certs")refreshCerts();if(v==="audit")refreshAudit();if(v==="certificate-rules")refreshRules("cert");}
 function validHost(h){return /^(?=.{1,253}$)(\*\.)?([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(h.trim())}
 function publishMessage(res,action){
  if(res&&res.policyRevision)return action+" e publicada (política "+res.policyRevision+"). Os computadores recebem em cerca de 1 minuto.";
@@ -538,6 +575,12 @@ $("#viewRoot").addEventListener("click",e=>{
  if(tog){toggleRule(tog.dataset.toggleRule,tog.dataset.id);return}
  const del=e.target.closest("[data-delete-rule]");
  if(del){deleteRule(del.dataset.deleteRule,del.dataset.id);return}
+ const det=e.target.closest("[data-device-detail]");
+ if(det){state.detailId=det.dataset.deviceDetail;navigate("device-detail");return}
+ if(e.target.closest('[data-action="refresh-detail"]')){refreshDeviceDetail();return}
+ if(e.target.closest('[data-action="refresh-health"]')){refreshHealth();return}
+ if(e.target.closest('[data-action="refresh-certs"]')){refreshCerts();return}
+ if(e.target.closest('[data-action="refresh-audit"]')){refreshAudit();return}
  if(e.target.closest('[data-action="refresh-devices"]')){refreshDevices();return}
  if(e.target.closest('[data-action="refresh"]')){refreshDashboard();return}
 });
