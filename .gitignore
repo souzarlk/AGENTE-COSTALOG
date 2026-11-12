@@ -28,3 +28,6 @@ desktop.ini
 
 # Pacotes de atualizacao do agente (gerados por Publish-AgentRelease.ps1)
 server/agent-releases/
+
+# Imagens de papel de parede enviadas pelo painel
+server/wallpaper/

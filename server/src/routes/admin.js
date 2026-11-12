@@ -8,6 +8,8 @@ import {requireAdmin,requireAdminWrite} from "../middleware.js";
 import {latestRelease,latestInstaller} from "../agentReleases.js";
 import {certVisibleSql} from "../certFilter.js";
 import {getUninstallPasswordInfo,setUninstallPassword,createUninstallApproval,UNINSTALL_SETTING} from "../uninstall.js";
+import {publicEmailConfig,saveEmailConfig,sendTestEmail} from "../email.js";
+import {getDeviceControls,setUsbBlock,setWallpaper,setWallpaperEnabled,policyDeviceControls} from "../deviceControls.js";
 
 const router=Router();
 router.use(requireAdmin);
@@ -299,9 +301,7 @@ async function publishPolicy(adminId){
    webRules:w.rows,
    certificateRules:c.rows,
    allowedDestinations:w.rows.filter(rule=>rule.action==="allow").map(rule=>rule.hostname),
-   deviceControls:{
-    uninstallRequiresApproval:true
-   }
+   deviceControls:await policyDeviceControls()
   };
 
   const signed=signPolicy(payload);
@@ -391,6 +391,52 @@ router.post("/devices/:id/uninstall",requireAdminWrite,async(req,res,next)=>{try
  const a=await createUninstallApproval(req.params.id,"Painel ("+(req.admin.username||"TI")+")","Desinstalação solicitada pelo painel",req.admin.id);
  await audit(req.params.id,"uninstall_approved","Desinstalação enviada pelo painel",d.rows[0].deviceName,{adminId:req.admin.id,requestId:a.requestId});
  res.json({ok:true,expiresAt:a.expiresAt,message:"O agente será removido na próxima comunicação do computador (até ~1 minuto)."});
+ }catch(e){next(e)}});
+
+// ===== Configurações gerais: e-mail, pendrive (USB), papel de parede =====
+router.get("/email-settings",async(req,res,next)=>{try{
+ res.json(await publicEmailConfig());
+ }catch(e){next(e)}});
+
+router.put("/email-settings",requireAdminWrite,async(req,res,next)=>{try{
+ const x=z.object({enabled:z.boolean().default(false),host:z.string().max(200).default(""),port:z.number().int().min(1).max(65535).default(587),secure:z.boolean().default(false),user:z.string().max(200).default(""),password:z.string().max(400).optional(),from:z.string().max(254).default(""),to:z.string().max(254).default("")}).strict().parse(req.body);
+ await saveEmailConfig(x,req.admin.id);
+ await audit(null,"email_settings_changed","Configuração de alertas por e-mail alterada","",{adminId:req.admin.id,enabled:x.enabled});
+ res.json(await publicEmailConfig());
+ }catch(e){next(e)}});
+
+router.post("/email-settings/test",requireAdminWrite,async(req,res,next)=>{try{
+ const x=z.object({host:z.string().max(200).optional(),port:z.number().int().optional(),secure:z.boolean().optional(),user:z.string().max(200).optional(),password:z.string().max(400).optional(),from:z.string().max(254).optional(),to:z.string().max(254).optional()}).strict().parse(req.body||{});
+ await sendTestEmail(x,req.admin.id);
+ res.json({ok:true,message:"E-mail de teste enviado."});
+ }catch(e){res.status(400).json({message:"Falha ao enviar: "+(e.message||"erro")})}});
+
+router.get("/device-controls",async(req,res,next)=>{try{
+ const c=await getDeviceControls();
+ res.json({usbStorageBlock:!!c.usbStorageBlock,wallpaperEnabled:!!c.wallpaperEnabled,hasWallpaper:!!(c.wallpaperFile&&c.wallpaperSha256),updatedAt:c.updatedAt});
+ }catch(e){next(e)}});
+
+router.put("/device-controls/usb",requireAdminWrite,async(req,res,next)=>{try{
+ const x=z.object({enabled:z.boolean()}).strict().parse(req.body);
+ await setUsbBlock(x.enabled,req.admin.id);
+ const p=await publishPolicy(req.admin.id);
+ await audit(null,"device_control_changed","Bloqueio de pendrive "+(x.enabled?"ativado":"desativado"),"",{adminId:req.admin.id});
+ res.json({ok:true,enabled:x.enabled,policyRevision:p.revision});
+ }catch(e){next(e)}});
+
+router.put("/device-controls/wallpaper",requireAdminWrite,async(req,res,next)=>{try{
+ const x=z.object({image:z.string().min(100).max(12000000)}).strict().parse(req.body);
+ const r=await setWallpaper(x.image,req.admin.id);
+ const p=await publishPolicy(req.admin.id);
+ await audit(null,"device_control_changed","Papel de parede padrão enviado","",{adminId:req.admin.id});
+ res.json({ok:true,...r,policyRevision:p.revision});
+ }catch(e){res.status(400).json({message:e.message||"Falha ao enviar a imagem."})}});
+
+router.put("/device-controls/wallpaper-enabled",requireAdminWrite,async(req,res,next)=>{try{
+ const x=z.object({enabled:z.boolean()}).strict().parse(req.body);
+ await setWallpaperEnabled(x.enabled,req.admin.id);
+ const p=await publishPolicy(req.admin.id);
+ res.json({ok:true,enabled:x.enabled,policyRevision:p.revision});
  }catch(e){next(e)}});
 
 router.get("/settings",async(req,res,next)=>{try{

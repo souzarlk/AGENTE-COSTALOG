@@ -452,24 +452,96 @@ function pageAgentSettings(){return head("CONTROLE DO SERVIÇO","Configurações
 '<section class="card card-pad">'+cardHead("Como remover o agente","Sempre com autorização da TI")+
 '<div class="detail-grid"><div class="detail-item"><span>NO COMPUTADOR</span><b>Execute o DESINSTALAR.cmd (vem no instalador) e digite a senha de desinstalação.</b></div><div class="detail-item"><span>PELO PAINEL</span><b>Em Computadores → Ver detalhes → "Desinstalar agente". A remoção acontece na próxima comunicação (até ~1 minuto).</b></div></div></section>'+
 '</div>'}
-function pageSettings(){return head("ADMINISTRAÇÃO","Configurações gerais","Integrações de e-mail, perfis de rede, políticas de privacidade, restrições de hardware/software e parâmetros globais.",demoLabel)+
-'<div class="settings-grid"><section class="card card-pad">'+cardHead("Monitoramento de e-mail","Conectores corporativos autorizados")+
-demo.email.map(m=>'<div class="switch-row"><div><b>'+esc(m.mailbox)+'</b><small>'+esc(m.type)+' · '+esc(m.scope)+' · '+esc(m.last)+'</small></div>'+pill(m.status)+'</div>').join('')+
-'<div class="notice-box">Integração futura via Microsoft Graph/Exchange ou IMAP OAuth. Sem coleta de senhas, sem leitura indiscriminada de mensagens pessoais e com escopos delegados, caixas aprovadas e logs.</div></section>'+
-'<section class="card card-pad">'+cardHead("Gestão e automação de e-mail","Regras de triagem e notificação")+
-'<div class="switch-row"><div><b>Alertas técnicos por e-mail</b><small>Disco, SMART, Office, Windows Update, malware detectado pelo Defender, perda de heartbeat.</small></div><label class="toggle"><input type="checkbox" checked disabled><span></span></label></div><div class="switch-row"><div><b>Classificação de caixa de TI</b><small>Rótulos e filas de atendimento via API; ações de enviar/excluir exigem permissão explícita.</small></div><label class="toggle"><input type="checkbox" disabled><span></span></label></div></section>'+
-'<section class="card card-pad">'+cardHead("Política de rede","Configuração exata de acesso")+
-'<div class="form-stack"><div class="field"><label>Perfil de rede</label><select disabled><option>Corporativa gerenciada</option><option>VPN obrigatória</option><option>Rede restrita</option></select></div><div class="field"><label>DNS corporativo</label><input disabled placeholder="Ex.: IP do DNS interno"></div><div class="field"><label>Proxy / PAC</label><input disabled placeholder="URL do PAC, quando aplicável"></div><div class="field"><label>Sub-redes aprovadas</label><input disabled placeholder="CIDR da rede empresarial"></div></div><p class="cell-sub">A aplicação será feita por política Windows/MDM ou agente com privilégios controlados, nunca por alteração furtiva de rota ou credenciais.</p></section>'+
-'<section class="card card-pad">'+cardHead("Prevenção de vazamento","USB, instalação de software e dados")+
-'<div class="switch-row"><div><b>Bloqueio de armazenamento USB</b><small>Permitir exceções por dispositivo serial aprovado pela TI. Teclado e mouse USB permanecem liberados.</small></div><label class="toggle"><input type="checkbox" checked disabled><span></span></label></div>'+
-'<div class="switch-row"><div><b>Restringir instalação de programas</b><small>Aplicar Windows App Control/WDAC ou AppLocker conforme edição/versão e política corporativa.</small></div><label class="toggle"><input type="checkbox" checked disabled><span></span></label></div>'+
-'<div class="switch-row"><div><b>Wallpaper corporativo</b><small>Política de personalização para computadores gerenciados, com exceções aprovadas.</small></div><label class="toggle"><input type="checkbox" disabled><span></span></label></div></section>'+
-'<section class="card card-pad">'+cardHead("Privacidade e retenção","Transparência e minimização")+
-'<div class="form-stack"><div class="field"><label>Retenção dos eventos de navegação</label><select disabled><option>90 dias (proposta inicial)</option></select></div><div class="field"><label>Granularidade de navegação</label><input disabled value="Domínio + horário + decisão + dispositivo"></div><div class="field"><label>Monitoramento de uso</label><input disabled value="Tempo de sessão, uptime e categorias corporativas"></div></div></section>'+
-'<section class="card card-pad">'+cardHead("Alertas e destinatários","Notificação de incidentes")+
-'<div class="form-stack"><div class="field"><label>E-mail principal de TI</label><input disabled value="ti@costalog.com.br"></div><div class="field"><label>Alertas críticos</label><input disabled value="Imediatos"></div><div class="field"><label>Resumo operacional</label><input disabled value="Diário"></div></div></section></div>'}
+function pageSettings(){return head("ADMINISTRAÇÃO","Configurações gerais","Alertas por e-mail, bloqueio de pendrive e papel de parede padrão dos computadores.")+
+'<div class="settings-grid">'+
+'<section class="card card-pad">'+cardHead("Alertas por e-mail","Receba um e-mail a cada alerta crítico, mesmo com o painel fechado")+
+'<div id="emailStatus" class="notice-box">Consultando...</div><br>'+
+'<form id="emailForm" class="form-stack">'+
+'<div class="switch-row"><div><b>Enviar alertas por e-mail</b><small>Tentativa de desinstalação, agente encerrado, disco com falha, uso de certificado fora da lista.</small></div><label class="toggle"><input type="checkbox" name="enabled"><span></span></label></div>'+
+'<div class="field"><label>Servidor SMTP</label><input name="host" maxlength="200" placeholder="Ex.: smtp.gmail.com"></div>'+
+'<div class="rule-form"><div class="field"><label>Porta</label><input name="port" type="number" min="1" max="65535" placeholder="587"></div><div class="field"><label>Conexão segura (SSL)</label><select name="secure"><option value="false">STARTTLS (porta 587)</option><option value="true">SSL/TLS (porta 465)</option></select></div></div>'+
+'<div class="field"><label>Usuário (login do e-mail)</label><input name="user" maxlength="200" autocomplete="off" placeholder="conta@empresa.com.br"></div>'+
+'<div class="field"><label>Senha</label><input name="password" type="password" maxlength="400" autocomplete="new-password" placeholder="Deixe em branco para manter a atual"></div>'+
+'<div class="field"><label>Enviar de (remetente)</label><input name="from" maxlength="254" placeholder="AGENTE COSTALOG <ti@empresa.com.br>"></div>'+
+'<div class="field"><label>Enviar para (TI)</label><input name="to" maxlength="254" placeholder="ti@empresa.com.br"></div>'+
+'<div class="form-row"><button class="btn btn-primary" type="submit">Salvar</button> <button class="btn btn-secondary" type="button" data-action="email-test">Enviar e-mail de teste</button></div>'+
+'<p id="emailFeedback" class="form-feedback" role="status"></p><small class="cell-sub">A senha é guardada no servidor e nunca é exibida de volta. Para Gmail/Outlook, use uma "senha de app".</small></form></section>'+
+'<section class="card card-pad">'+cardHead("Bloqueio de pendrive (USB)","Impede pendrives e HDs externos em todos os computadores")+
+'<div class="switch-row"><div><b>Bloquear armazenamento USB</b><small>Teclado, mouse, impressora e token de certificado (A3) continuam funcionando. Vale para pendrives e HDs externos.</small></div><label class="toggle"><input type="checkbox" id="usbToggle" disabled><span></span></label></div>'+
+'<div class="notice-box">A mudança é enviada na política e aplicada nos computadores em cerca de 1 minuto. Um pendrive já conectado é liberado até ser removido e conectado de novo.</div>'+
+'<p id="usbFeedback" class="form-feedback" role="status"></p></section>'+
+'<section class="card card-pad">'+cardHead("Papel de parede padrão","Imagem da empresa em todos os computadores")+
+'<div id="wallpaperStatus" class="notice-box">Consultando...</div><br>'+
+'<div class="switch-row"><div><b>Usar papel de parede padrão</b><small>Define a imagem em todos os PCs e impede o funcionário de trocar.</small></div><label class="toggle"><input type="checkbox" id="wallpaperToggle" disabled><span></span></label></div>'+
+'<div class="field"><label>Imagem (PNG ou JPG, até 8 MB)</label><input type="file" id="wallpaperFile" accept="image/png,image/jpeg"></div>'+
+'<button class="btn btn-primary" type="button" data-action="wallpaper-upload" id="wallpaperUpload" disabled>Enviar imagem</button>'+
+'<p id="wallpaperFeedback" class="form-feedback" role="status"></p><small class="cell-sub">Recomendado: 1920x1080. A imagem é enviada aos computadores pela política.</small></section>'+
+'</div>'}
+async function refreshSettingsPage(){
+ try{
+  const e=await fetchJson(apiUrl("/admin/email-settings"));
+  if(state.view!=="settings")return;
+  const f=$("#emailForm");
+  if(f){
+   f.elements.enabled.checked=!!e.enabled;f.elements.host.value=e.host||"";f.elements.port.value=e.port||587;f.elements.secure.value=String(!!e.secure);f.elements.user.value=e.user||"";f.elements.from.value=e.from||"";f.elements.to.value=e.to||"";
+   f.elements.password.placeholder=e.hasPassword?"•••••• (mantida; preencha para trocar)":"Senha do e-mail";
+  }
+  const es=$("#emailStatus");if(es)es.innerHTML=e.configured?(e.enabled?'<strong>Ativo.</strong> Alertas críticos serão enviados para '+esc(e.to||"a TI")+'.':'<strong>Configurado, mas desligado.</strong> Marque "Enviar alertas por e-mail" para ativar.'):'<strong>Não configurado.</strong> Preencha os dados do e-mail e salve.';
+ }catch(err){const es=$("#emailStatus");if(es)es.textContent="Falha ao consultar e-mail: "+(err.message||"erro")}
+ try{
+  const d=await fetchJson(apiUrl("/admin/device-controls"));
+  if(state.view!=="settings")return;
+  const u=$("#usbToggle");if(u){u.checked=!!d.usbStorageBlock;u.disabled=false}
+  const w=$("#wallpaperToggle");if(w){w.checked=!!d.wallpaperEnabled;w.disabled=!d.hasWallpaper}
+  const up=$("#wallpaperUpload");if(up)up.disabled=false;
+  const ws=$("#wallpaperStatus");if(ws)ws.innerHTML=d.hasWallpaper?(d.wallpaperEnabled?'<strong>Papel de parede padrão ativo.</strong>':'<strong>Imagem enviada, mas desligada.</strong> Ligue a chave para aplicar.'):'<strong>Nenhuma imagem enviada ainda.</strong>';
+ }catch(err){const ws=$("#wallpaperStatus");if(ws)ws.textContent="Falha: "+(err.message||"erro")}
+}
+async function saveEmailSettings(form){
+ const fb=form.querySelector("#emailFeedback"),btn=form.querySelector('button[type="submit"]');
+ const body={enabled:form.elements.enabled.checked,host:form.elements.host.value.trim(),port:Number(form.elements.port.value)||587,secure:form.elements.secure.value==="true",user:form.elements.user.value.trim(),from:form.elements.from.value.trim(),to:form.elements.to.value.trim()};
+ const pw=form.elements.password.value;if(pw)body.password=pw;
+ btn.disabled=true;fb.textContent="Salvando...";
+ try{await fetchJson(apiUrl("/admin/email-settings"),{method:"PUT",body:JSON.stringify(body)});form.elements.password.value="";fb.textContent="Configuração salva.";toast("Configuração de e-mail salva.");refreshSettingsPage()}
+ catch(e){fb.textContent=e.message||"Não foi possível salvar."}
+ finally{btn.disabled=false}
+}
+async function testEmail(){
+ const f=$("#emailForm"),fb=$("#emailFeedback");
+ const body={host:f.elements.host.value.trim(),port:Number(f.elements.port.value)||587,secure:f.elements.secure.value==="true",user:f.elements.user.value.trim(),from:f.elements.from.value.trim(),to:f.elements.to.value.trim()};
+ const pw=f.elements.password.value;if(pw)body.password=pw;
+ fb.textContent="Enviando e-mail de teste... (pode levar alguns segundos)";
+ try{const r=await fetchJson(apiUrl("/admin/email-settings/test"),{method:"POST",body:JSON.stringify(body)});fb.textContent=r.message||"E-mail de teste enviado.";toast("E-mail de teste enviado.")}
+ catch(e){fb.textContent=e.message||"Falha ao enviar o teste."}
+}
+async function toggleUsb(on){
+ const fb=$("#usbFeedback"),u=$("#usbToggle");u.disabled=true;fb.textContent="Aplicando...";
+ try{const r=await fetchJson(apiUrl("/admin/device-controls/usb"),{method:"PUT",body:JSON.stringify({enabled:on})});fb.textContent=(on?"Bloqueio de pendrive ativado":"Bloqueio de pendrive desativado")+" (política "+r.policyRevision+"). Chega aos computadores em ~1 minuto.";toast("Política atualizada.")}
+ catch(e){fb.textContent=e.message||"Falha.";u.checked=!on}
+ finally{u.disabled=false}
+}
+async function toggleWallpaper(on){
+ const fb=$("#wallpaperFeedback"),w=$("#wallpaperToggle");w.disabled=true;fb.textContent="Aplicando...";
+ try{await fetchJson(apiUrl("/admin/device-controls/wallpaper-enabled"),{method:"PUT",body:JSON.stringify({enabled:on})});fb.textContent=on?"Papel de parede ativado.":"Papel de parede desativado.";toast("Política atualizada.");refreshSettingsPage()}
+ catch(e){fb.textContent=e.message||"Falha.";w.checked=!on}
+ finally{w.disabled=false}
+}
+async function uploadWallpaper(){
+ const input=$("#wallpaperFile"),fb=$("#wallpaperFeedback"),btn=$("#wallpaperUpload");
+ const file=input.files&&input.files[0];
+ if(!file){fb.textContent="Escolha uma imagem primeiro.";return}
+ if(file.size>8*1048576){fb.textContent="A imagem deve ter no máximo 8 MB.";return}
+ btn.disabled=true;fb.textContent="Enviando...";
+ try{
+  const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error("Falha ao ler a imagem."));r.readAsDataURL(file)});
+  const r=await fetchJson(apiUrl("/admin/device-controls/wallpaper"),{method:"PUT",body:JSON.stringify({image:b64})});
+  fb.textContent="Imagem enviada e ativada (política "+r.policyRevision+"). Chega aos computadores em ~1 minuto.";toast("Papel de parede enviado.");input.value="";refreshSettingsPage();
+ }catch(e){fb.textContent=e.message||"Falha ao enviar."}
+ finally{btn.disabled=false}
+}
+
 const pages={"overview":pageOverview,"web-blocking":pageWeb,"certificate-rules":pageCertRules,"devices":pageDevices,"health":pageHealth,"installed-certs":pageCerts,"browsing":pageBrowsing,"audit":pageAudit,"downloads":pageDownloads,"device-detail":pageDeviceDetail,"agent-settings":pageAgentSettings,"settings":pageSettings};
-function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");if(v==="overview")refreshDashboard();if(v==="devices")refreshDevices();if(v==="web-blocking")refreshRules("web");if(v==="downloads")refreshRelease();if(v==="device-detail")refreshDeviceDetail();if(v==="health")refreshHealth();if(v==="installed-certs")refreshCerts();if(v==="audit")refreshAudit();if(v==="browsing")refreshBrowsing();if(v==="agent-settings")refreshUninstallStatus();if(v==="certificate-rules"){refreshRules("cert");refreshCertUsage()}}
+function navigate(v){if(!pages[v])return;state.view=v;$("#pageTitle").textContent=titles[v];$$(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===v));$("#viewRoot").innerHTML=pages[v]();$("#sidebar").classList.remove("open");if(v==="overview")refreshDashboard();if(v==="devices")refreshDevices();if(v==="web-blocking")refreshRules("web");if(v==="downloads")refreshRelease();if(v==="device-detail")refreshDeviceDetail();if(v==="health")refreshHealth();if(v==="installed-certs")refreshCerts();if(v==="audit")refreshAudit();if(v==="browsing")refreshBrowsing();if(v==="agent-settings")refreshUninstallStatus();if(v==="certificate-rules"){refreshRules("cert");refreshCertUsage()}if(v==="settings")refreshSettingsPage();}
 function validHost(h){return /^(?=.{1,253}$)(\*\.)?([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(h.trim())}
 function publishMessage(res,action){
  if(res&&res.policyRevision)return action+" e publicada (política "+res.policyRevision+"). Os computadores recebem em cerca de 1 minuto.";
@@ -750,6 +822,8 @@ $("#viewRoot").addEventListener("click",e=>{
  if(e.target.closest('[data-action="refresh-health"]')){refreshHealth();return}
  if(e.target.closest('[data-action="refresh-certs"]')){refreshCerts();return}
  if(e.target.closest('[data-action="refresh-audit"]')){refreshAudit();return}
+ if(e.target.closest('[data-action="email-test"]')){testEmail();return}
+ if(e.target.closest('[data-action="wallpaper-upload"]')){uploadWallpaper();return}
  const ack=e.target.closest("[data-ack-id]");
  if(ack){(async()=>{await ackAlert(ack.dataset.ackId);loadAudit(ack.dataset.device)})();return}
  if(e.target.closest('[data-action="refresh-browsing"]')){refreshBrowsing();return}
@@ -776,6 +850,8 @@ $("#viewRoot").addEventListener("change",e=>{
  if(e.target.id==="certUsageDays"){state.certUsageDays=Number(e.target.value)||7;refreshCertUsage();return}
  if(e.target.id==="auditSeverity"){state.auditSeverity=e.target.value;refreshAudit();return}
  if(e.target.id==="auditDays"){state.auditDays=Number(e.target.value)||7;refreshAudit();return}
+ if(e.target.id==="usbToggle"){toggleUsb(e.target.checked);return}
+ if(e.target.id==="wallpaperToggle"){toggleWallpaper(e.target.checked);return}
  if(e.target.id==="browsingDays"){state.browsingDays=Number(e.target.value)||1;refreshBrowsing();return}
  if(e.target.id==="browsingOnlyBlocked"){state.browsingOnlyBlocked=e.target.checked;document.querySelectorAll(".browse-group[open]").forEach(g=>loadBrowsing(g.dataset.device,""));return}
  if(e.target.id==="deviceFilter"){
@@ -783,7 +859,7 @@ $("#viewRoot").addEventListener("change",e=>{
   const grid=$("#deviceGrid");
   if(grid)grid.innerHTML=renderDevices();
  }
-});$("#viewRoot").addEventListener("submit",e=>{if(e.target.id==="webRuleForm"){e.preventDefault();addRule(e.target,"web")}if(e.target.id==="certRuleForm"){e.preventDefault();addRule(e.target,"cert")}if(e.target.id==="enrollmentForm"){e.preventDefault();createEnrollment(e.target)}if(e.target.id==="uninstallPasswordForm"){e.preventDefault();saveUninstallPassword(e.target)}});
+});$("#viewRoot").addEventListener("submit",e=>{if(e.target.id==="webRuleForm"){e.preventDefault();addRule(e.target,"web")}if(e.target.id==="certRuleForm"){e.preventDefault();addRule(e.target,"cert")}if(e.target.id==="enrollmentForm"){e.preventDefault();createEnrollment(e.target)}if(e.target.id==="uninstallPasswordForm"){e.preventDefault();saveUninstallPassword(e.target)}if(e.target.id==="emailForm"){e.preventDefault();saveEmailSettings(e.target)}});
 $("#menuButton").addEventListener("click",()=>$("#sidebar").classList.toggle("open"));
 $("#alertsButton").addEventListener("click",e=>{
  e.stopPropagation();

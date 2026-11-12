@@ -7,6 +7,7 @@ import cors from "cors";
 import rateLimit from "express-rate-limit";
 
 import { query, closePool } from "./db.js";
+import { processEmailQueue } from "./email.js";
 import adminRoutes from "./routes/admin.js";
 import authRoutes from "./routes/auth.js";
 import deviceRoutes from "./routes/device.js";
@@ -68,6 +69,9 @@ app.use(
     maxAge: 600
   })
 );
+
+// Envio do papel de parede (imagem em base64) aceita corpo maior.
+app.use("/api/v1/admin/device-controls/wallpaper", express.json({ limit: "14mb", strict: true }));
 
 app.use(express.json({
   limit: "1mb",
@@ -182,6 +186,10 @@ async function cleanupBrowsing() {
   }
 }
 setTimeout(cleanupBrowsing, 60 * 1000).unref();
+
+// Envio de alertas por e-mail (a cada 60s).
+setTimeout(processEmailQueue, 20 * 1000).unref();
+setInterval(processEmailQueue, 60 * 1000).unref();
 setInterval(cleanupBrowsing, 6 * 60 * 60 * 1000).unref();
 
 const port = Number(process.env.PORT || 8080);

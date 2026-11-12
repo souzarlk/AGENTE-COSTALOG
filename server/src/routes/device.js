@@ -7,6 +7,7 @@ import {requireDevice} from "../middleware.js";
 import {latestRelease,compareVersions} from "../agentReleases.js";
 import {certIgnored} from "../certFilter.js";
 import {checkUninstallPassword,createUninstallApproval} from "../uninstall.js";
+import {wallpaperPath,getDeviceControls} from "../deviceControls.js";
 const router=Router(),uuid=()=>crypto.randomUUID();
 const enrollment=z.object({enrollmentToken:z.string().min(8).max(200),deviceName:z.string().trim().min(1).max(120),windowsUsername:z.string().max(120).default(""),domainName:z.string().max(160).default(""),osCaption:z.string().max(160).default(""),osVersion:z.string().max(80).default(""),osBuild:z.string().max(80).default(""),manufacturer:z.string().max(120).default(""),model:z.string().max(160).default(""),cpuName:z.string().max(180).default(""),ramTotalBytes:z.number().int().min(0).default(0),agentVersion:z.string().max(40).default(""),installMode:z.enum(["certificate","certificate-and-web"]),bootAt:z.string().datetime().optional()}).strict();
 router.post("/enroll",async(req,res,next)=>{try{
@@ -113,6 +114,15 @@ router.post("/browsing-events",async(req,res,next)=>{try{
  });
  res.status(202).json({accepted:true});
  }catch(e){next(e)}});
+// Papel de parede padrão: o agente baixa a imagem referenciada na política.
+router.get("/wallpaper",async(req,res,next)=>{try{
+ const c=await getDeviceControls();
+ const full=c.wallpaperEnabled?wallpaperPath(c.wallpaperFile):null;
+ if(!full)return res.status(404).json({message:"Nenhum papel de parede configurado."});
+ res.set("Cache-Control","no-store");
+ res.sendFile(full,err=>{if(err&&!res.headersSent)next(err)});
+ }catch(e){next(e)}});
+
 router.get("/policy",async(req,res,next)=>{try{
  const r=await query("SELECT revision,payload FROM policies WHERE status='published' ORDER BY revision DESC LIMIT 1");
  if(!r.rowCount)return res.status(404).json({message:"Política ainda não publicada."});

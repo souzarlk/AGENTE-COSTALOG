@@ -683,6 +683,69 @@ public sealed class AgentWorker : BackgroundService
         );
 
         await ApplyWebBlocking(c, rev, webRules, ct);
+
+        if (p.TryGetProperty("deviceControls", out var controls))
+            await ApplyDeviceControls(c, controls, ct);
+    }
+
+    // ===== Bloqueio de pendrive e papel de parede =====
+    async Task ApplyDeviceControls(AgentConfig c, JsonElement controls, CancellationToken ct)
+    {
+        var usbBlock = controls.TryGetProperty("usbStorage", out var usb) && usb.GetString() == "block";
+
+        try
+        {
+            if (DeviceControls.ApplyUsbStorage(usbBlock))
+                _log.LogInformation("Bloqueio de pendrive {State}.", usbBlock ? "ativado" : "desativado");
+        }
+        catch (Exception e)
+        {
+            _log.LogWarning("Falha ao aplicar bloqueio de pendrive: {Message}", e.Message);
+        }
+
+        try
+        {
+            if (controls.TryGetProperty("wallpaper", out var wp) &&
+                wp.TryGetProperty("mode", out var mode) && mode.GetString() == "managed" &&
+                wp.TryGetProperty("sha256", out var shaEl))
+            {
+                var sha = shaEl.GetString() ?? "";
+                var localImage = Path.Combine(AgentConfigStore.PublicRoot, "wallpaper.img");
+
+                var needDownload = !File.Exists(localImage) ||
+                    !string.Equals(Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(localImage, ct))), sha, StringComparison.OrdinalIgnoreCase);
+
+                if (needDownload)
+                {
+                    using var req = Request(c, HttpMethod.Get, "api/v1/device/wallpaper");
+                    using var res = await _http.SendAsync(req, ct);
+                    await EnsureOk(res, "Papel de parede recusado.", ct);
+                    var bytes = await res.Content.ReadAsByteArrayAsync(ct);
+
+                    if (!string.Equals(Convert.ToHexString(SHA256.HashData(bytes)), sha, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidDataException("A imagem recebida não confere com a política.");
+
+                    Directory.CreateDirectory(AgentConfigStore.PublicRoot);
+                    await File.WriteAllBytesAsync(localImage, bytes, ct);
+                }
+
+                if (DeviceControls.ApplyWallpaper(localImage))
+                    _log.LogInformation("Papel de parede padrão aplicado.");
+            }
+            else if (controls.TryGetProperty("wallpaper", out var wpu) &&
+                     wpu.TryGetProperty("mode", out var m2) && m2.GetString() == "user")
+            {
+                DeviceControls.ReleaseWallpaper();
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            _log.LogWarning("Falha ao aplicar o papel de parede: {Message}", e.Message);
+        }
     }
 
     // ===== Uso dos certificados digitais =====
